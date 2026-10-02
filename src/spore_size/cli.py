@@ -11,6 +11,7 @@ import csv
 import os
 import sys
 
+from .errors import PhotoRejected
 from .measure import process_image
 
 
@@ -28,6 +29,12 @@ def build_parser():
     ap.add_argument("--max-length-um", type=float, default=25.0)
     ap.add_argument("--min-width-um", type=float, default=1.5)
     ap.add_argument("--max-width-um", type=float, default=18.0)
+    ap.add_argument("--include-touching", action="store_true",
+                    help="also measure spores touching another spore (split apart); "
+                         "by default only isolated spores are measured")
+    ap.add_argument("--max-crowded", type=float, default=0.25,
+                    help="skip photos where more than this fraction of the view is "
+                         "not background, e.g. tissue (default: %(default)s)")
     ap.add_argument("--no-debug", action="store_true",
                     help="skip writing the calibration diagnostic images")
     return ap
@@ -38,18 +45,22 @@ def main(argv=None):
 
     os.makedirs(args.out_dir, exist_ok=True)
     all_rows = []
-    n_failed = 0
+    n_ok = 0
     for path in args.images:
         try:
             summary, kept = process_image(
                 path, args.out_dir, um_per_tick=args.um_per_tick,
                 min_length_um=args.min_length_um, max_length_um=args.max_length_um,
                 min_width_um=args.min_width_um, max_width_um=args.max_width_um,
+                include_touching=args.include_touching, max_crowded=args.max_crowded,
                 save_debug=not args.no_debug)
+        except PhotoRejected as e:
+            print(f"[SKIPPED] {os.path.basename(path)}: {e}", file=sys.stderr)
+            continue
         except Exception as e:
             print(f"[FAILED] {path}: {e}", file=sys.stderr)
-            n_failed += 1
             continue
+        n_ok += 1
         print(f"{os.path.basename(path)}: n={summary['n']}  "
               f"L={summary['length_mean']:.2f}±{summary['length_sd']:.2f} um  "
               f"W={summary['width_mean']:.2f}±{summary['width_sd']:.2f} um  "
@@ -67,7 +78,7 @@ def main(argv=None):
                             f"{r['Q_ratio']:.2f}"])
         print(f"\nCombined CSV: {combined_path}")
 
-    return 1 if n_failed == len(args.images) else 0
+    return 0 if n_ok else 1
 
 
 if __name__ == "__main__":

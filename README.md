@@ -32,18 +32,33 @@ summary, spores = process_image("photo1.jpg", "results")
 ```
 
 ## What it does, per photo
-1. Auto-detects the ruler and computes microns-per-pixel for THAT photo
+The goal is a trustworthy size range: it measures only clean, in-focus,
+isolated spores and would rather skip a spore (or a whole photo) than
+measure a doubtful one.
+
+1. Skips photos that are not usable spore micrographs, printing
+   `[SKIPPED] <photo>: <reason>`:
+   - no circular microscope field of view (e.g. a photo of the collection),
+   - a crowded field: more than 25% of the view is not plain background,
+     as in tissue squashes (`--max-crowded` to change),
+   - no reliable scale bar (fewer than 8 evenly spaced ticks in a row).
+2. Auto-detects the ruler and computes microns-per-pixel for THAT photo
    (each photo is calibrated independently, since the ruler's position/angle
    varies shot to shot).
-2. Finds spores by colour: yellow-brown interiors and dark red-brown walls.
+3. Finds spores by colour: yellow-brown interiors and dark red-brown walls.
    Air bubbles and oil droplets (greenish centres, faint rims) are ignored.
-3. Splits touching spores apart (each spore's brown interior is used as a
-   seed) and fits an ellipse to each one.
-4. Rejects anything that is not a clean, single, pigmented oval: implausible
-   size, irregular shape, too pale compared with the background (tissue,
-   mountant tint), or much darker than it (dirt, smudges).
+4. Keeps only spores that are:
+   - in focus: a sharp, dark wall all round (ghost, pale and blurred spores
+     are dropped),
+   - isolated: not touching another spore (`--include-touching` splits and
+     measures touching spores too),
+   - clear of the scale bar and of the edge of the field of view,
+   - single, well-fit ovals of plausible size, not much paler or darker than
+     a pigmented spore should be,
+   - not oddly sized compared with the other spores in the same photo
+     (more than ~3 robust SDs from the photo's median length or width).
 5. Writes, into --out-dir:
-   - `<photo>_spore_overlay.png`   - annotated image, red ellipse per spore
+   - `<photo>_spore_overlay.png`   - annotated image, red ellipse per measured spore
    - `<photo>_spore_measurements.csv` - length_um, width_um, Q ratio per spore
    - `<photo>_calib_overlay.png`   - diagnostic: green line = detected ruler
    - `<photo>_calib_strip.png`     - diagnostic: ruler profile, red = detected ticks
@@ -53,22 +68,20 @@ summary, spores = process_image("photo1.jpg", "results")
 It also prints a one-line summary (mean +/- SD) per photo to the terminal.
 
 ## Assumptions / things to check
-- The scale bar is assumed to run 0-100 = 0-100 microns (1 tick = 1 um).
-  Change with `--um-per-tick` if your scale bar uses a different convention.
+- **Magnification:** the scale bar is in the eyepiece, so its ticks are the
+  same number of pixels apart at every objective -- the program cannot tell
+  400x from 1000x. The default `--um-per-tick 1.0` is correct only for the
+  1000x (100x oil) objective. Only pass 1000x spore photos, or set
+  `--um-per-tick` to your micrometer's value for the objective used.
 - Default accepted spore size range is 3-25 um long, 1.5-18 um wide
   (`--min-length-um` etc.) -- widen/narrow these for your species.
 - Detection is tuned for pigmented (yellow-brown) spores like Cortinarius /
   Thaxterogaster. Hyaline or differently coloured spores need the colour
   settings changed (see Tuning).
-- Touching spores are split, but overlapping ones (one on top of another)
-  and spores embedded in tissue are usually skipped, so counts are a
-  conservative undercount. The `*_spore_overlay.png` lets you visually
-  spot-check what was measured.
-- Always check `*_calib_overlay.png` for a couple of photos in a new batch
-  to confirm the green line is tracking the actual ruler -- if lighting or
-  ruler style differs a lot from the sample, the auto-detection may need
-  retuning (thresholds are in `src/spore_size/calibration.py` /
-  `src/spore_size/segment.py`).
+- Counts are deliberately conservative: typically about half the spores in a
+  field are measured. The `*_spore_overlay.png` shows exactly which ones.
+- Check `*_calib_overlay.png` for a couple of photos in a new batch to
+  confirm the green line is tracking the actual ruler.
 
 ## Tuning
 If a batch's spores are systematically missed or merged, the main knobs are
@@ -80,6 +93,8 @@ saturation/brightness 0-255):
   raise it if bubble rims get merged into spores.
 - `min_sat_above_bg`, `min_rel_brightness`: how much more saturated than the
   background a spore must be, and how dark it may be relative to it.
+- `min_sharpness`, `max_wall_level`: how crisp and dark the spore wall must
+  be, relative to the background (focus strictness).
 - `min_solidity`, `min_axis_ratio`/`max_axis_ratio`: shape strictness.
 
 ## Project layout
@@ -87,9 +102,10 @@ saturation/brightness 0-255):
         calibration.py   scale-bar detection -> microns per pixel
         segment.py       spore segmentation + ellipse fitting
         measure.py       per-image pipeline: filter, CSV, overlay
-        fov.py           microscope field-of-view detection
+        fov.py           microscope field-of-view detection / micrograph check
+        errors.py        PhotoRejected (photo skipped, not an error)
         cli.py           `spore-size` command
-    tests/               pytest suite (real ruler crop + synthetic spores)
+    tests/               pytest suite (real micrograph + synthetic spores)
 
 ## Development
     pip install -e ".[dev]"

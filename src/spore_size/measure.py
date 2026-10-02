@@ -1,10 +1,12 @@
 """
 End-to-end spore sizing for a single micrograph:
-  1. auto-calibrate the ocular-micrometer scale bar (calibration.py)
-  2. segment candidate spore silhouettes (segment.py)
-  3. convert to microns, filter to a plausible spore size range, and
-     report length x width (+ Q ratio) per spore
-  4. write an annotated overlay + a CSV of measurements
+  1. reject photos that are not usable spore micrographs: no microscope
+     field of view, no reliable scale bar, or a crowded field (tissue)
+  2. auto-calibrate the ocular-micrometer scale bar (calibration.py)
+  3. segment clean, in-focus spores (segment.py)
+  4. convert to microns, drop spores on the scale bar, outside the plausible
+     size range, or oddly sized compared with the rest of the photo
+  5. write an annotated overlay + a CSV of measurements
 """
 import csv
 import os
@@ -13,7 +15,53 @@ import cv2
 import numpy as np
 
 from .calibration import calibrate_image
+from .errors import PhotoRejected
+from .fov import check_micrograph, find_fov_circle, fov_mask
 from .segment import segment_spores
+
+
+def crowded_fraction(img_bgr, delta_e=10.0):
+    """
+    Fraction of the field of view whose (smoothed) colour differs clearly
+    from the background. A spore mount is mostly empty background (~5-15%);
+    a tissue squash is mostly not (40%+).
+    """
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+    center, r = find_fov_circle(gray)
+    inner = fov_mask(gray.shape, center, r, shrink=0.85) > 0
+    lab = cv2.cvtColor(cv2.GaussianBlur(img_bgr, (0, 0), 4), cv2.COLOR_BGR2LAB)
+    lab = lab[inner].astype(np.float32)
+    diff = np.linalg.norm(lab - np.median(lab, axis=0), axis=1)
+    return float(np.mean(diff > delta_e))
+
+
+def near_ruler(spore, calib, margin_px=60, half_len_ticks=55):
+    """True if the spore lies on or right next to the scale bar."""
+    cx, cy = calib["center"]
+    ang = np.radians(calib["angle_deg"])
+    d = np.array([np.cos(ang), np.sin(ang)])
+    v = np.array(spore["center_px"]) - (cx, cy)
+    along = float(v @ d)
+    across = abs(float(v @ (-d[1], d[0])))
+    half_len = half_len_ticks * calib["px_per_tick"]
+    return abs(along) < half_len + margin_px and across < spore["length_px"] / 2 + margin_px
+
+
+def drop_size_outliers(spores, k=3.0, min_rel_spread=0.04, min_n=5):
+    """
+    Drop spores whose length or width is far from the photo's median
+    (more than k robust SDs, with the SD floored at min_rel_spread x median).
+    Skipped when fewer than min_n spores.
+    """
+    if len(spores) < min_n:
+        return spores
+    keep = np.ones(len(spores), bool)
+    for key in ("length_um", "width_um"):
+        x = np.array([s[key] for s in spores])
+        med = np.median(x)
+        sd = max(1.4826 * np.median(np.abs(x - med)), min_rel_spread * med)
+        keep &= np.abs(x - med) <= k * sd
+    return [s for s, ok in zip(spores, keep) if ok]
 
 
 def filter_spores(raw_spores, um_per_px, min_length_um=3.0, max_length_um=25.0,
@@ -80,10 +128,12 @@ def draw_overlay(img_bgr, kept, um_per_px):
 def process_image(path, out_dir, um_per_tick=1.0,
                   min_length_um=3.0, max_length_um=25.0,
                   min_width_um=1.5, max_width_um=18.0,
+                  include_touching=False, max_crowded=0.25,
                   save_debug=True):
     """
     Calibrate, segment and measure one image, writing its CSV and overlay
     into out_dir. Returns (summary_dict, kept_spores).
+    Raises PhotoRejected if the photo is not a usable spore micrograph.
     """
     img = cv2.imread(path)
     if img is None:
@@ -91,13 +141,21 @@ def process_image(path, out_dir, um_per_tick=1.0,
     stem = os.path.splitext(os.path.basename(path))[0]
     debug_prefix = os.path.join(out_dir, stem) if save_debug else None
 
+    check_micrograph(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    crowded = crowded_fraction(img)
+    if crowded > max_crowded:
+        raise PhotoRejected(f"crowded field ({crowded:.0%} of view is not background; "
+                            f"tissue rather than a spore mount?)")
+
     calib = calibrate_image(img, microns_per_tick=um_per_tick, debug_prefix=debug_prefix)
     um_per_px = calib["microns_per_px"]
 
-    raw_spores = segment_spores(img)  # final overlay is drawn below, kept spores only
+    raw_spores = segment_spores(img, include_touching=include_touching)
+    raw_spores = [s for s in raw_spores if not near_ruler(s, calib)]
     kept = filter_spores(raw_spores, um_per_px,
                          min_length_um=min_length_um, max_length_um=max_length_um,
                          min_width_um=min_width_um, max_width_um=max_width_um)
+    kept = drop_size_outliers(kept)
 
     csv_path = os.path.join(out_dir, f"{stem}_spore_measurements.csv")
     write_measurements_csv(kept, csv_path)

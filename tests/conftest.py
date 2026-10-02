@@ -1,7 +1,8 @@
 """Test fixtures.
 
-- sample_ruler.jpg: a crop of a real micrograph around the ocular scale bar
-  (known calibration: 12 px per tick, i.e. 0.0833 um/px).
+- sample_spores.jpg: the field of view of a real 1000x micrograph of
+  Thaxterogaster spores with the ocular scale bar (known calibration:
+  12 px per tick, i.e. 0.0833 um/px; ~11 clean isolated spores, ~6.9 x 5.0 um).
 - make_image(): synthetic micrograph with brown elliptical "spores" of known
   size (including a touching pair) plus clear bubbles, for exercising
   segmentation.
@@ -12,9 +13,9 @@ import cv2
 import numpy as np
 import pytest
 
-SAMPLE_RULER = Path(__file__).parent / "data" / "sample_ruler.jpg"
+SAMPLE = Path(__file__).parent / "data" / "sample_spores.jpg"
 SAMPLE_PX_PER_TICK = 12.0
-SAMPLE_RULER_ANGLE_DEG = 30.0  # modulo 180
+SAMPLE_RULER_ANGLE_DEG = 62.0  # modulo 180
 
 SIZE = 1400
 # (center, (length_px, width_px), angle_deg) -- varied angles exercise axis ordering
@@ -59,5 +60,5 @@ def synthetic_image():
 
 
 @pytest.fixture
-def sample_ruler_image():
-    return cv2.imread(str(SAMPLE_RULER))
+def sample_image():
+    return cv2.imread(str(SAMPLE))

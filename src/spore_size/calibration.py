@@ -22,6 +22,7 @@ import numpy as np
 from scipy.signal import find_peaks
 from scipy.ndimage import gaussian_filter1d
 
+from .errors import PhotoRejected
 from .fov import find_fov_circle, fov_mask
 
 
@@ -75,6 +76,16 @@ def _fit_ruler_line(edges_in_region):
     return {"angle_deg": angle_deg, "center": tuple(mean), "n_ticks": int(inlier.sum())}
 
 
+def _longest_regular_run(peaks, px_per_tick, tol=0.2):
+    """Longest run of consecutive tick gaps within tol of the expected spacing."""
+    ok = np.abs(np.diff(peaks) / px_per_tick - 1) < tol
+    best = run = 0
+    for o in ok:
+        run = run + 1 if o else 0
+        best = max(best, run)
+    return best
+
+
 def _measure_spacing(gray, center, angle_deg, strip_len=1600, strip_half_h=25):
     h, w = gray.shape
     M = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
@@ -98,24 +109,30 @@ def _measure_spacing(gray, center, angle_deg, strip_len=1600, strip_half_h=25):
     return px_per_tick, len(peaks), strip, peaks
 
 
-def calibrate_image(img_bgr, microns_per_tick=1.0, debug_prefix=None):
+def calibrate_image(img_bgr, microns_per_tick=1.0, min_regular_ticks=8, debug_prefix=None):
     """
     Detect the scale bar in a BGR image and return its calibration as a dict
     with px_per_tick, microns_per_px, angle_deg, center and n_peaks.
 
     If debug_prefix is given, writes <prefix>_calib_overlay.png (green line =
     detected ruler) and <prefix>_calib_strip.png (red lines = detected ticks).
-    Raises RuntimeError if the ruler cannot be found.
+    Raises PhotoRejected if no ruler with at least min_regular_ticks
+    consecutive evenly spaced ticks is found (e.g. the line locked onto
+    tissue texture instead of the scale bar).
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     fov_center, fov_radius = find_fov_circle(gray)
 
     edges = _achromatic_edges(img_bgr, fov_center, fov_radius)
-    region_mask = _ruler_region_mask(edges)
-    edges_region = cv2.bitwise_and(edges, edges, mask=region_mask)
-
-    line = _fit_ruler_line(edges_region)
-    px_per_tick, n_peaks, strip, peaks = _measure_spacing(gray, line["center"], line["angle_deg"])
+    try:
+        region_mask = _ruler_region_mask(edges)
+        edges_region = cv2.bitwise_and(edges, edges, mask=region_mask)
+        line = _fit_ruler_line(edges_region)
+        px_per_tick, n_peaks, strip, peaks = _measure_spacing(
+            gray, line["center"], line["angle_deg"])
+    except RuntimeError as e:
+        raise PhotoRejected(f"scale bar not found ({e})") from e
+    regular_run = _longest_regular_run(peaks, px_per_tick)
 
     microns_per_px = microns_per_tick / px_per_tick
 
@@ -135,11 +152,16 @@ def calibrate_image(img_bgr, microns_per_tick=1.0, debug_prefix=None):
             cv2.line(dbg_strip, (p, 0), (p, dbg_strip.shape[0]), (0, 0, 255), 1)
         cv2.imwrite(f"{debug_prefix}_calib_strip.png", dbg_strip)
 
+    if regular_run < min_regular_ticks:
+        raise PhotoRejected(f"scale bar not found reliably (only {regular_run} evenly "
+                            f"spaced ticks in a row; need {min_regular_ticks})")
+
     return {
         "px_per_tick": px_per_tick,
         "microns_per_px": microns_per_px,
         "angle_deg": line["angle_deg"],
         "center": line["center"],
         "n_peaks": n_peaks,
+        "regular_run": regular_run,
     }
 

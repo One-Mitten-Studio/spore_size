@@ -14,9 +14,14 @@ walls between neighbouring spores keep each interior a separate blob, so
 every pixel of a clump is assigned to its nearest interior. Clumps with no
 brown interior at all (debris, bubble fragments) are dropped.
 
-Finally each fitted spore is compared with the photo's own background: it
-must be clearly more saturated (rejects pale tissue / mountant tint) and not
-much darker (rejects dirt and out-of-focus smudges).
+Finally each fitted spore must pass quality checks, so that only clean,
+in-focus, isolated spores are measured (missing some is preferred over
+measuring bad ones). Compared with the photo's own background it must be:
+- clearly more saturated (rejects pale tissue / mountant tint),
+- not much darker (rejects dirt and smudges),
+- outlined by a sharp, dark wall (rejects out-of-focus and ghost spores).
+By default spores touching another spore, or near the edge of the field of
+view, are also left out.
 """
 import cv2
 import numpy as np
@@ -118,20 +123,54 @@ def _interior_hsv_median(hsv, ellipse, scale=0.6):
     return np.median(crop[m > 0], axis=0)
 
 
+def _wall_metrics(gray, grad_mag, ellipse, n_angles=72, band=8):
+    """
+    Sample the spore outline along radial lines through the fitted ellipse.
+    Returns (sharpness, wall_level): the median over the outline of the
+    strongest edge gradient and of the darkest grey level within +-band px.
+    An in-focus spore has a crisp, dark wall: high sharpness, low wall_level.
+    """
+    (cx, cy), (a, b), angle = ellipse
+    h, w = gray.shape
+    th = np.linspace(0, 2 * np.pi, n_angles, endpoint=False)
+    t = np.radians(angle)
+    ex, ey = a / 2 * np.cos(th), b / 2 * np.sin(th)
+    px = cx + ex * np.cos(t) - ey * np.sin(t)
+    py = cy + ex * np.sin(t) + ey * np.cos(t)
+    norm = np.hypot(px - cx, py - cy)
+    dx, dy = (px - cx) / norm, (py - cy) / norm
+    steps = np.arange(-band, band + 1)
+    xs = np.clip(np.round(px[:, None] + dx[:, None] * steps), 0, w - 1).astype(int)
+    ys = np.clip(np.round(py[:, None] + dy[:, None] * steps), 0, h - 1).astype(int)
+    sharpness = np.median(grad_mag[ys, xs].max(axis=1))
+    wall_level = np.median(gray[ys, xs].min(axis=1))
+    return float(sharpness), float(wall_level)
+
+
 def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
                    min_area_px=150, max_area_px=20000,
                    min_solidity=0.85, min_axis_ratio=1.05, max_axis_ratio=3.0,
                    min_sat_above_bg=25, min_rel_brightness=0.75,
+                   min_sharpness=0.9, max_wall_level=0.6,
+                   include_touching=False, fov_margin=0.95,
                    debug_prefix=None):
     """
     Returns a list of dicts, one per detected spore, each with the fitted
-    ellipse (center, length/width in px, angle) and shape-quality metrics.
+    ellipse (center, length/width in px, angle) and quality metrics.
+
+    min_sharpness and max_wall_level are relative to the background grey
+    level: the wall's edge gradient must be at least min_sharpness x
+    background, and its darkest part at most max_wall_level x background.
+
     If debug_prefix is given, also writes <prefix>_spore_mask.png and
     <prefix>_spore_overlay.png.
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     fov_center, fov_r = find_fov_circle(gray)
     inner_fov = fov_mask(gray.shape, fov_center, fov_r, shrink=0.97)
+    bg_gray = float(np.median(gray[inner_fov > 0]))
+    grad_mag = cv2.magnitude(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3),
+                             cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
 
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     # spores cover a small fraction of the field, so the median is background
@@ -164,16 +203,28 @@ def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
         big = np.flatnonzero(sstats[1:, cv2.CC_STAT_AREA] >= min_seed_area) + 1
         comp_seeds = np.isin(lbl, big).astype(np.uint8) * 255
 
-        for region in _split_by_seeds(comp, comp_seeds):
+        regions = _split_by_seeds(comp, comp_seeds)
+        touching = len(regions) > 1
+        if touching and not include_touching:
+            continue
+        for region in regions:
             s = _measure_region(region, (int(x), int(y)), min_area_px, max_area_px,
                                 min_solidity, min_axis_ratio, max_axis_ratio)
             if s is None:
                 continue
+            (cx, cy), r_out = s["center_px"], s["length_px"] / 2
+            if np.hypot(cx - fov_center[0], cy - fov_center[1]) + r_out > fov_margin * fov_r:
+                continue  # at the edge of the field: vignetted / distorted
             _, sat, val = _interior_hsv_median(hsv, s["ellipse"])
             if sat < bg_sat + min_sat_above_bg:
                 continue  # too pale: tissue or background tint, not a pigmented spore
             if val < min_rel_brightness * bg_val:
                 continue  # much darker than the field: dirt, smudge or debris
+            sharpness, wall_level = _wall_metrics(gray, grad_mag, s["ellipse"])
+            if sharpness < min_sharpness * bg_gray or wall_level > max_wall_level * bg_gray:
+                continue  # soft or faint outline: out of focus, or a ghost/immature spore
+            s.update(touching=touching, sharpness=sharpness / bg_gray,
+                     wall_level=wall_level / bg_gray)
             spores.append(s)
 
     if debug_prefix:
