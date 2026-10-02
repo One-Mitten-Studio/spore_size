@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spore-size"
+version = "0.1.0"
+description = "Automated fungal spore sizing from micrographs with an ocular-micrometer scale bar"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{ name = "Douglas Smith" }]
+dependencies = [
+    "numpy",
+    "scipy",
+    "opencv-python-headless",
+]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+spore-size = "spore_size.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
