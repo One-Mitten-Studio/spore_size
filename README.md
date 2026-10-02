@@ -81,3 +81,6 @@ bounds).
 ## Development
     pip install -e ".[dev]"
     pytest
+
+## License
+MIT -- see [LICENSE](LICENSE).
