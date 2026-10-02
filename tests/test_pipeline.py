@@ -21,7 +21,8 @@ def test_calibration_scales_with_um_per_tick(sample_ruler_image):
     assert r["microns_per_px"] == pytest.approx(2.5 / SAMPLE_PX_PER_TICK, rel=0.01)
 
 
-def test_segmentation_finds_all_spores_any_orientation(synthetic_image):
+def test_segmentation_finds_spores_not_bubbles(synthetic_image):
+    """Every spore found (pair split, bubble not merged in) and no bubbles."""
     spores = segment_spores(synthetic_image)
     assert len(spores) == len(SPORES)
     for s in spores:
@@ -30,6 +31,16 @@ def test_segmentation_finds_all_spores_any_orientation(synthetic_image):
                                                      e[0][1] - s["center_px"][1]))
         assert s["length_px"] == pytest.approx(expected[1][0], rel=0.05)
         assert s["width_px"] == pytest.approx(expected[1][1], rel=0.05)
+
+
+def test_segmentation_ignores_bubbles_alone():
+    img = make_image()
+    # paint over the spores with background, leaving only bubbles
+    mask = np.zeros(img.shape[:2], np.uint8)
+    for center, (length, width), angle in SPORES:
+        cv2.ellipse(mask, center, (length // 2 + 3, width // 2 + 3), angle, 0, 360, 255, -1)
+    img[mask > 0] = (175, 175, 175)
+    assert segment_spores(img) == []
 
 
 def test_process_image_writes_outputs(tmp_path):

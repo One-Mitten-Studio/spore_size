@@ -2,8 +2,9 @@
 
 - sample_ruler.jpg: a crop of a real micrograph around the ocular scale bar
   (known calibration: 12 px per tick, i.e. 0.0833 um/px).
-- make_image(): synthetic micrograph with coloured elliptical "spores" of
-  known size, for exercising segmentation.
+- make_image(): synthetic micrograph with brown elliptical "spores" of known
+  size (including a touching pair) plus clear bubbles, for exercising
+  segmentation.
 """
 from pathlib import Path
 
@@ -22,7 +23,18 @@ SPORES = [
     ((980, 420), (120, 75), 90),
     ((400, 1000), (100, 60), 45),
     ((1000, 1000), (130, 80), 135),
+    # a touching pair, end to end
+    ((640, 700), (110, 70), 0),
+    ((752, 700), (110, 70), 0),
 ]
+# (center, radius): clear bubbles with a weak red rim and greenish interior,
+# one of them touching the first spore
+BUBBLES = [((515, 400), 40), ((1000, 700), 45)]
+
+SPORE_WALL_BGR = (60, 40, 150)     # dark, strongly saturated red-brown
+SPORE_INNER_BGR = (60, 130, 190)   # yellow-brown
+BUBBLE_RIM_BGR = (160, 150, 185)   # weakly saturated pink-red (S~48)
+BUBBLE_INNER_BGR = (170, 190, 160)  # pale green
 
 
 def make_image():
@@ -30,9 +42,14 @@ def make_image():
     c = SIZE // 2
     cv2.circle(img, (c, c), int(SIZE * 0.48), (175, 175, 175), -1)
 
+    for center, r in BUBBLES:
+        cv2.circle(img, center, r, BUBBLE_INNER_BGR, -1, cv2.LINE_AA)
+        cv2.circle(img, center, r, BUBBLE_RIM_BGR, 6, cv2.LINE_AA)
     for center, (length, width), angle in SPORES:
-        cv2.ellipse(img, center, (length // 2, width // 2), angle, 0, 360,
-                    (40, 110, 190), -1, cv2.LINE_AA)
+        axes = (length // 2, width // 2)
+        cv2.ellipse(img, center, axes, angle, 0, 360, SPORE_WALL_BGR, -1, cv2.LINE_AA)
+        inner = (axes[0] - 5, axes[1] - 5)
+        cv2.ellipse(img, center, inner, angle, 0, 360, SPORE_INNER_BGR, -1, cv2.LINE_AA)
     return img
 
 
