@@ -1,9 +1,13 @@
+import csv
+import os
+import shutil
+
 import cv2
 import numpy as np
 import pytest
 
 from spore_size import calibrate_image, process_image, segment_spores
-from spore_size.cli import main
+from spore_size.cli import directory_labels, main
 from spore_size.errors import PhotoRejected
 from conftest import (SAMPLE, SAMPLE_PX_PER_TICK, SAMPLE_RULER_ANGLE_DEG,
                       SPORES, make_image)
@@ -110,3 +114,29 @@ def test_cli_end_to_end(tmp_path, capsys):
     assert main([str(SAMPLE), "--out-dir", str(out)]) == 0
     assert "sample_spores.jpg: n=" in capsys.readouterr().out
     assert (out / "all_spores_combined.csv").exists()
+
+
+def test_cli_combined_csvs_per_directory(tmp_path):
+    for d in ("collA", "collB"):
+        (tmp_path / d).mkdir()
+        shutil.copy(SAMPLE, tmp_path / d / f"{d}_photo.jpg")
+    out = tmp_path / "out"
+    images = ["collA/collA_photo.jpg", "collB/collB_photo.jpg"]
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        assert main(images + ["--out-dir", str(out), "--no-debug"]) == 0
+    finally:
+        os.chdir(cwd)
+
+    with open(out / "all_spores_combined.csv") as f:
+        all_images = {r["image"] for r in csv.DictReader(f)}
+    assert all_images == set(images)
+    for d, img in zip(("collA", "collB"), images):
+        with open(out / f"{d}_spores_combined.csv") as f:
+            assert {r["image"] for r in csv.DictReader(f)} == {img}
+
+
+def test_directory_labels_disambiguate_same_name():
+    labels = directory_labels(["a/x", "b/x", "c/y"])
+    assert labels == {"a/x": "a_x", "b/x": "b_x", "c/y": "y"}

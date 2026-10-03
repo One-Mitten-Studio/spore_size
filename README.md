@@ -64,7 +64,11 @@ measure a doubtful one.
    - `<photo>_calib_overlay.png`   - diagnostic: green line = detected ruler
    - `<photo>_calib_strip.png`     - diagnostic: ruler profile, red = detected ticks
      (skip both diagnostics with `--no-debug`)
-   - `all_spores_combined.csv`     - every spore from every photo, one file
+   - `all_spores_combined.csv`     - every spore from every photo, one file;
+     the `image` column is the path exactly as given on the command line
+   - `<dir>_spores_combined.csv`   - the same, for each directory the images
+     came from (e.g. `inat255552721_spores_combined.csv` for
+     `inat255552721/P9102898.JPG ...`)
 
 It also prints a one-line summary (mean +/- SD) per photo to the terminal.
 

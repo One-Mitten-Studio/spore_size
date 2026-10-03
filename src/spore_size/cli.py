@@ -5,6 +5,10 @@ Usage:
     spore-size <image.jpg> [more images...] [--out-dir DIR] [--um-per-tick 1.0]
                [--min-length-um 3] [--max-length-um 25]
                [--min-width-um 1.5] [--max-width-um 18]
+
+Writes all_spores_combined.csv (every measured spore, with the image path as
+given on the command line) and, for each directory the images came from,
+<dir>_spores_combined.csv with just that directory's spores.
 """
 import argparse
 import csv
@@ -40,6 +44,32 @@ def build_parser():
     return ap
 
 
+def write_combined_csv(rows, csv_path):
+    with open(csv_path, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["image", "length_um", "width_um", "Q_ratio"])
+        for r in rows:
+            w.writerow([r["image"], f"{r['length_um']:.2f}", f"{r['width_um']:.2f}",
+                        f"{r['Q_ratio']:.2f}"])
+
+
+def directory_labels(dirs):
+    """
+    Short, unique file-name labels for image directories: the last path
+    component (e.g. "inat255552721"), or the whole path joined with "_" when
+    two directories share a last component.
+    """
+    def last(d):
+        return os.path.basename(os.path.normpath(d))
+
+    labels = {}
+    for d in dirs:
+        clash = any(last(o) == last(d) for o in dirs if o != d)
+        label = os.path.normpath(d).strip(os.sep).replace(os.sep, "_") if clash else last(d)
+        labels[d] = label or "root"
+    return labels
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
 
@@ -66,17 +96,20 @@ def main(argv=None):
               f"W={summary['width_mean']:.2f}±{summary['width_sd']:.2f} um  "
               f"Q={summary['Q_mean']:.2f}  ({summary['um_per_px']:.4f} um/px)")
         for s in kept:
-            all_rows.append({"image": os.path.basename(path), **s})
+            all_rows.append({"image": path, **s})
 
     if all_rows:
         combined_path = os.path.join(args.out_dir, "all_spores_combined.csv")
-        with open(combined_path, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["image", "length_um", "width_um", "Q_ratio"])
-            for r in all_rows:
-                w.writerow([r["image"], f"{r['length_um']:.2f}", f"{r['width_um']:.2f}",
-                            f"{r['Q_ratio']:.2f}"])
+        write_combined_csv(all_rows, combined_path)
         print(f"\nCombined CSV: {combined_path}")
+
+        # one combined CSV per image directory, if images came from directories
+        dirs = sorted({os.path.dirname(r["image"]) for r in all_rows} - {""})
+        for d, label in directory_labels(dirs).items():
+            rows = [r for r in all_rows if os.path.dirname(r["image"]) == d]
+            dir_path = os.path.join(args.out_dir, f"{label}_spores_combined.csv")
+            write_combined_csv(rows, dir_path)
+            print(f"  {d}: {dir_path}")
 
     return 0 if n_ok else 1
 
