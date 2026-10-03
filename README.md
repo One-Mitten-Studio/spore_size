@@ -80,15 +80,20 @@ summary table at the end.
 "all" rows pool the individual spores rather than averaging photo means.
 For length, width and Q it gives:
 - `_mean`
-- `_sd`: sample standard deviation (n-1 denominator) -- how much individual
-  spores vary
-- `_sem`: standard error of the mean, SD / sqrt(n) -- how much the mean would
-  vary if another random sample of the same number of spores were measured.
-  Roughly 68% of such repeat means would fall within mean +/- 1 SEM, and 95%
-  within +/- 2 SEM.
-- `size`: the range in the usual mycological notation,
-  `(min-)5th percentile-95th percentile(-max)`, e.g.
-  `(5.0–)5.8–7.3(–7.8) × (3.5–)4.2–5.1(–5.8) µm, Q = 1.44`
+- `_sem`: the statistical error of the mean, SD / sqrt(n) (sample SD, n-1
+  denominator) -- how much the mean would vary if another random sample of
+  the same number of spores were measured. Shrinks as more spores are
+  measured.
+- `_sys`: the systematic error. A light microscope cannot resolve better
+  than ~0.1 um, so every measurement carries at least that error, and it
+  does not average away (`--sys-error-um` to change). For Q it is propagated
+  from the length and width errors.
+- `_sd`: the spread of individual spores -- natural variation, not an error.
+
+Report a mean as `mean ± stat ± sys`, e.g. `6.46 ± 0.05 ± 0.10 µm`. When
+comparing collections measured with the same microscope and scale bar, the
+systematic error is largely shared, so differences between them are judged
+against the statistical errors.
 
 The "all" row pools every photo on the command line; only read it as one
 population if all photos are of the same collection.
@@ -130,7 +135,7 @@ saturation/brightness 0-255):
         measure.py       per-image pipeline: filter, CSV, overlay
         fov.py           microscope field-of-view detection / micrograph check
         errors.py        PhotoRejected (photo skipped, not an error)
-        summary.py       run statistics (mean, SD, SEM) and spore_summary.csv
+        summary.py       run statistics (mean, stat/sys errors, SD) -> spore_summary.csv
         cli.py           `spore-size` command
     tests/               pytest suite (real micrograph + synthetic spores)
 

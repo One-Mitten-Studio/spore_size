@@ -6,8 +6,9 @@ Usage:
                [--min-length-um 3] [--max-length-um 25]
                [--min-width-um 1.5] [--max-width-um 18]
 
-Writes spore_summary.csv (mean, SD and SEM of length, width and Q for each
-image, each image directory and all spores), all_spores_combined.csv (every measured spore, with the image path as
+Writes spore_summary.csv (mean, statistical error (SEM), systematic error
+and SD of length, width and Q for each image, each image directory and all
+spores), all_spores_combined.csv (every measured spore, with the image path as
 given on the command line) and, for each directory the images came from,
 <dir>_spores_combined.csv with just that directory's spores.
 """
@@ -18,7 +19,7 @@ import sys
 
 from .errors import PhotoRejected
 from .measure import process_image
-from .summary import format_table, summary_rows, write_summary_csv
+from .summary import DEFAULT_SYS_ERROR_UM, format_table, summary_rows, write_summary_csv
 
 
 def build_parser():
@@ -41,6 +42,9 @@ def build_parser():
     ap.add_argument("--max-clutter", type=float, default=0.28,
                     help="skip photos where more than this fraction of the view is "
                          "neither background nor spores, e.g. tissue (default: %(default)s)")
+    ap.add_argument("--sys-error-um", type=float, default=DEFAULT_SYS_ERROR_UM,
+                    help="systematic error of a length measurement in um, e.g. the "
+                         "light microscope's resolution limit (default: %(default)s)")
     ap.add_argument("--no-debug", action="store_true",
                     help="skip writing the calibration diagnostic images")
     return ap
@@ -116,10 +120,12 @@ def main(argv=None):
             print(f"  {d}: {dir_path}")
 
     if processed:
-        stats = summary_rows(all_rows, images=processed)
+        stats = summary_rows(all_rows, images=processed, sys_error_um=args.sys_error_um)
         summary_path = os.path.join(args.out_dir, "spore_summary.csv")
         write_summary_csv(stats, summary_path)
-        print(f"\nSummary (mean, SD, SEM = SD/sqrt(n)): {summary_path}\n")
+        print(f"\nSummary: {summary_path}")
+        print(f"stat = SEM = SD/sqrt(n); sys = {args.sys_error_um} um measurement limit "
+              f"(propagated for Q); SD = spread of individual spores\n")
         print(format_table(stats))
 
     return 0 if n_ok else 1

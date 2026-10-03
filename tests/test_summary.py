@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from spore_size.summary import describe, format_table, size_notation, summary_rows
+from spore_size.summary import describe, format_table, q_systematic, summary_rows
 
 
 def _rows(image, lengths, widths):
@@ -42,8 +42,13 @@ def test_no_directory_rows_without_directories():
     assert [r["level"] for r in out] == ["image", "all"]
 
 
-def test_size_notation():
-    l = describe(np.linspace(5, 8, 101))
-    w = describe(np.linspace(4, 5, 101))
-    q = describe([1.4, 1.5])
-    assert size_notation(l, w, q) == "(5.0–)5.2–7.8(–8.0) × (4.0–)4.0–5.0(–5.0) µm, Q = 1.45"
+def test_systematic_error_columns():
+    rows = _rows("p1.jpg", [6.0, 7.0], [4.0, 5.0])
+    out = summary_rows(rows, sys_error_um=0.1)
+    r = out[-1]
+    assert r["length_sys"] == 0.1 and r["width_sys"] == 0.1
+    # Q = 6.5/4.5; independent 0.1 um errors on L and W
+    expected = (6.5 / 4.5) * np.hypot(0.1 / 6.5, 0.1 / 4.5)
+    assert r["Q_sys"] == pytest.approx(expected)
+    assert q_systematic(6.5, 4.5, 0.1) == pytest.approx(expected)
+    assert "size" not in r
