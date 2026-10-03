@@ -64,13 +64,34 @@ measure a doubtful one.
    - `<photo>_calib_overlay.png`   - diagnostic: green line = detected ruler
    - `<photo>_calib_strip.png`     - diagnostic: ruler profile, red = detected ticks
      (skip both diagnostics with `--no-debug`)
+   - `spore_summary.csv`           - statistics for the whole run (see below)
    - `all_spores_combined.csv`     - every spore from every photo, one file;
      the `image` column is the path exactly as given on the command line
    - `<dir>_spores_combined.csv`   - the same, for each directory the images
      came from (e.g. `inat255552721_spores_combined.csv` for
      `inat255552721/P9102898.JPG ...`)
 
-It also prints a one-line summary (mean +/- SD) per photo to the terminal.
+It also prints a one-line summary (mean +/- SD) per photo as it goes, and the
+summary table at the end.
+
+## Summary statistics
+`spore_summary.csv` has one row per photo, a total row for each directory
+(directly after its photos) and a final row for all spores. Directory and
+"all" rows pool the individual spores rather than averaging photo means.
+For length, width and Q it gives:
+- `_mean`
+- `_sd`: sample standard deviation (n-1 denominator) -- how much individual
+  spores vary
+- `_sem`: standard error of the mean, SD / sqrt(n) -- how much the mean would
+  vary if another random sample of the same number of spores were measured.
+  Roughly 68% of such repeat means would fall within mean +/- 1 SEM, and 95%
+  within +/- 2 SEM.
+- `size`: the range in the usual mycological notation,
+  `(min-)5th percentile-95th percentile(-max)`, e.g.
+  `(5.0–)5.8–7.3(–7.8) × (3.5–)4.2–5.1(–5.8) µm, Q = 1.44`
+
+The "all" row pools every photo on the command line; only read it as one
+population if all photos are of the same collection.
 
 ## Assumptions / things to check
 - **Magnification:** the scale bar is in the eyepiece, so its ticks are the
@@ -109,6 +130,7 @@ saturation/brightness 0-255):
         measure.py       per-image pipeline: filter, CSV, overlay
         fov.py           microscope field-of-view detection / micrograph check
         errors.py        PhotoRejected (photo skipped, not an error)
+        summary.py       run statistics (mean, SD, SEM) and spore_summary.csv
         cli.py           `spore-size` command
     tests/               pytest suite (real micrograph + synthetic spores)
 

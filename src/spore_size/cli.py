@@ -6,7 +6,8 @@ Usage:
                [--min-length-um 3] [--max-length-um 25]
                [--min-width-um 1.5] [--max-width-um 18]
 
-Writes all_spores_combined.csv (every measured spore, with the image path as
+Writes spore_summary.csv (mean, SD and SEM of length, width and Q for each
+image, each image directory and all spores), all_spores_combined.csv (every measured spore, with the image path as
 given on the command line) and, for each directory the images came from,
 <dir>_spores_combined.csv with just that directory's spores.
 """
@@ -17,6 +18,7 @@ import sys
 
 from .errors import PhotoRejected
 from .measure import process_image
+from .summary import format_table, summary_rows, write_summary_csv
 
 
 def build_parser():
@@ -75,6 +77,7 @@ def main(argv=None):
 
     os.makedirs(args.out_dir, exist_ok=True)
     all_rows = []
+    processed = []
     n_ok = 0
     for path in args.images:
         try:
@@ -91,6 +94,7 @@ def main(argv=None):
             print(f"[FAILED] {path}: {e}", file=sys.stderr)
             continue
         n_ok += 1
+        processed.append(path)
         print(f"{os.path.basename(path)}: n={summary['n']}  "
               f"L={summary['length_mean']:.2f}±{summary['length_sd']:.2f} um  "
               f"W={summary['width_mean']:.2f}±{summary['width_sd']:.2f} um  "
@@ -110,6 +114,13 @@ def main(argv=None):
             dir_path = os.path.join(args.out_dir, f"{label}_spores_combined.csv")
             write_combined_csv(rows, dir_path)
             print(f"  {d}: {dir_path}")
+
+    if processed:
+        stats = summary_rows(all_rows, images=processed)
+        summary_path = os.path.join(args.out_dir, "spore_summary.csv")
+        write_summary_csv(stats, summary_path)
+        print(f"\nSummary (mean, SD, SEM = SD/sqrt(n)): {summary_path}\n")
+        print(format_table(stats))
 
     return 0 if n_ok else 1
 
