@@ -4,7 +4,8 @@
   Thaxterogaster spores with the ocular scale bar (known calibration:
   12 px per tick, i.e. 0.0833 um/px; ~11 clean isolated spores, ~6.9 x 5.0 um).
 - make_image(): synthetic micrograph with brown elliptical "spores" of known
-  size (including a touching pair) plus clear bubbles, for exercising
+  size (including a touching pair and one with an oil drop inside) plus
+  clear bubbles, for exercising
   segmentation.
 """
 from pathlib import Path
@@ -36,6 +37,7 @@ SPORE_WALL_BGR = (60, 40, 150)     # dark, strongly saturated red-brown
 SPORE_INNER_BGR = (60, 130, 190)   # yellow-brown
 BUBBLE_RIM_BGR = (160, 150, 185)   # weakly saturated pink-red (S~48)
 BUBBLE_INNER_BGR = (170, 190, 160)  # pale green
+OIL_DROP_BGR = (175, 195, 170)     # pale, nearly colourless
 
 
 def make_image():
@@ -51,6 +53,10 @@ def make_image():
         cv2.ellipse(img, center, axes, angle, 0, 360, SPORE_WALL_BGR, -1, cv2.LINE_AA)
         inner = (axes[0] - 5, axes[1] - 5)
         cv2.ellipse(img, center, inner, angle, 0, 360, SPORE_INNER_BGR, -1, cv2.LINE_AA)
+    # a large central oil drop in the first spore, spanning its whole width
+    # so that it cuts the brown interior in two
+    (cx, cy), (_, width), _ = SPORES[0]
+    cv2.circle(img, (cx, cy), width // 2 - 4, OIL_DROP_BGR, -1, cv2.LINE_AA)
     return img
 
 

@@ -9,10 +9,12 @@ but only weakly saturated. So a pixel counts as "spore" if it is either
 brown and moderately saturated (spore interior) or red and strongly
 saturated (spore wall). OpenCV hue runs 0-180, with red wrapping at 0/180.
 
-Touching spores are separated using their brown interiors as seeds: the
-walls between neighbouring spores keep each interior a separate blob, so
-every pixel of a clump is assigned to its nearest interior. Clumps with no
-brown interior at all (debris, bubble fragments) are dropped.
+Touching spores are separated by shape: each spore silhouette (with its
+interior filled, so oil drops inside don't matter) has one "thickest" core,
+while two touching spores have two cores joined by a narrow neck. The cores
+(where the distance to the outline is at least half the clump's maximum) are
+used as seeds and every pixel of a clump is assigned to its nearest core.
+Clumps with no brown interior at all (debris, bubble fragments) are dropped.
 
 Finally each fitted spore must pass quality checks, so that only clean,
 in-focus, isolated spores are measured (missing some is preferred over
@@ -43,6 +45,25 @@ def _fill_holes(mask):
     flood = mask.copy()
     cv2.floodFill(flood, np.zeros((h + 2, w + 2), np.uint8), (0, 0), 255)
     return cv2.bitwise_or(mask, cv2.bitwise_not(flood))
+
+
+def spore_silhouettes(hsv, inner_fov, interior_hue=(8, 30), interior_sat=35, rim_sat=60):
+    """
+    Filled mask of spore-coloured objects inside the field of view, plus the
+    raw interior-colour mask. Returns (filled, interior).
+    """
+    interior, wall = spore_color_masks(hsv, interior_hue, interior_sat, rim_sat)
+    mask = cv2.bitwise_and(cv2.bitwise_or(interior, wall), inner_fov)
+    # clean up: close small gaps in outlines, remove specks, fill interiors
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    return _fill_holes(mask), interior
+
+
+def _shape_seeds(comp, core_frac=0.5):
+    """Cores of a filled clump: pixels at least core_frac x max distance from its edge."""
+    dist = cv2.distanceTransform(comp, cv2.DIST_L2, 5)
+    return (dist >= core_frac * dist.max()).astype(np.uint8) * 255
 
 
 def _split_by_seeds(comp, seeds):
@@ -175,19 +196,9 @@ def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     # spores cover a small fraction of the field, so the median is background
     bg_sat, bg_val = np.median(hsv[inner_fov > 0][:, 1:], axis=0)
-    interior, wall = spore_color_masks(hsv, interior_hue, interior_sat, rim_sat)
-    spore_mask = cv2.bitwise_and(cv2.bitwise_or(interior, wall), inner_fov)
+    filled, interior = spore_silhouettes(hsv, inner_fov, interior_hue, interior_sat, rim_sat)
 
-    # clean up: close small gaps in outlines, remove specks, fill interiors
-    spore_mask = cv2.morphologyEx(spore_mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-    spore_mask = cv2.morphologyEx(spore_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    filled = _fill_holes(spore_mask)
-
-    # seeds: solid brown interiors, opened to drop specks and thin bridges
-    seeds = cv2.bitwise_and(interior, inner_fov)
-    seeds = cv2.morphologyEx(seeds, cv2.MORPH_OPEN, np.ones((7, 7), np.uint8))
-    seeds = _fill_holes(seeds)
-    min_seed_area = min_area_px // 4
+    min_interior_px = min_area_px // 4
 
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(filled, connectivity=8)
 
@@ -197,13 +208,9 @@ def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
         if area < min_area_px:
             continue
         comp = (labels[y:y + bh, x:x + bw] == i).astype(np.uint8) * 255
-        comp_seeds = cv2.bitwise_and(seeds[y:y + bh, x:x + bw], comp)
-        # drop seed specks too small to be a spore interior
-        n, lbl, sstats, _ = cv2.connectedComponentsWithStats(comp_seeds, connectivity=8)
-        big = np.flatnonzero(sstats[1:, cv2.CC_STAT_AREA] >= min_seed_area) + 1
-        comp_seeds = np.isin(lbl, big).astype(np.uint8) * 255
-
-        regions = _split_by_seeds(comp, comp_seeds)
+        if np.count_nonzero(interior[y:y + bh, x:x + bw] & comp) < min_interior_px:
+            continue  # no brown interior: debris or a bubble fragment
+        regions = _split_by_seeds(comp, _shape_seeds(comp))
         touching = len(regions) > 1
         if touching and not include_touching:
             continue

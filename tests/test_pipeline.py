@@ -80,7 +80,7 @@ def test_rejects_non_micrograph(tmp_path):
         process_image(str(path), str(tmp_path))
 
 
-def test_rejects_crowded_field(tmp_path, sample_image):
+def test_rejects_cluttered_field(tmp_path, sample_image):
     # cover most of the field of view (but not the dark surround) with "tissue"
     img = sample_image.copy()
     h, w = img.shape[:2]
@@ -94,7 +94,7 @@ def test_rejects_crowded_field(tmp_path, sample_image):
     img[in_view] = tissue[in_view]
     path = tmp_path / "tissue.png"
     cv2.imwrite(str(path), img)
-    with pytest.raises(PhotoRejected, match="crowded"):
+    with pytest.raises(PhotoRejected, match="cluttered"):
         process_image(str(path), str(tmp_path))
 
 

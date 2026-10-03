@@ -32,9 +32,9 @@ def build_parser():
     ap.add_argument("--include-touching", action="store_true",
                     help="also measure spores touching another spore (split apart); "
                          "by default only isolated spores are measured")
-    ap.add_argument("--max-crowded", type=float, default=0.25,
+    ap.add_argument("--max-clutter", type=float, default=0.28,
                     help="skip photos where more than this fraction of the view is "
-                         "not background, e.g. tissue (default: %(default)s)")
+                         "neither background nor spores, e.g. tissue (default: %(default)s)")
     ap.add_argument("--no-debug", action="store_true",
                     help="skip writing the calibration diagnostic images")
     return ap
@@ -52,7 +52,7 @@ def main(argv=None):
                 path, args.out_dir, um_per_tick=args.um_per_tick,
                 min_length_um=args.min_length_um, max_length_um=args.max_length_um,
                 min_width_um=args.min_width_um, max_width_um=args.max_width_um,
-                include_touching=args.include_touching, max_crowded=args.max_crowded,
+                include_touching=args.include_touching, max_clutter=args.max_clutter,
                 save_debug=not args.no_debug)
         except PhotoRejected as e:
             print(f"[SKIPPED] {os.path.basename(path)}: {e}", file=sys.stderr)

@@ -39,8 +39,9 @@ measure a doubtful one.
 1. Skips photos that are not usable spore micrographs, printing
    `[SKIPPED] <photo>: <reason>`:
    - no circular microscope field of view (e.g. a photo of the collection),
-   - a crowded field: more than 25% of the view is not plain background,
-     as in tissue squashes (`--max-crowded` to change),
+   - a cluttered field: more than 28% of the view is neither plain
+     background nor spores, as in tissue squashes (dense spore mounts are
+     fine; `--max-clutter` to change),
    - no reliable scale bar (fewer than 8 evenly spaced ticks in a row).
 2. Auto-detects the ruler and computes microns-per-pixel for THAT photo
    (each photo is calibrated independently, since the ruler's position/angle

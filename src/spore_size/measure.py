@@ -1,7 +1,7 @@
 """
 End-to-end spore sizing for a single micrograph:
   1. reject photos that are not usable spore micrographs: no microscope
-     field of view, no reliable scale bar, or a crowded field (tissue)
+     field of view, no reliable scale bar, or a cluttered field (tissue)
   2. auto-calibrate the ocular-micrometer scale bar (calibration.py)
   3. segment clean, in-focus spores (segment.py)
   4. convert to microns, drop spores on the scale bar, outside the plausible
@@ -17,22 +17,26 @@ import numpy as np
 from .calibration import calibrate_image
 from .errors import PhotoRejected
 from .fov import check_micrograph, find_fov_circle, fov_mask
-from .segment import segment_spores
+from .segment import segment_spores, spore_silhouettes
 
 
-def crowded_fraction(img_bgr, delta_e=10.0):
+def clutter_fraction(img_bgr, delta_e=10.0):
     """
-    Fraction of the field of view whose (smoothed) colour differs clearly
-    from the background. A spore mount is mostly empty background (~5-15%);
-    a tissue squash is mostly not (40%+).
+    Fraction of the field of view covered by non-spore clutter: areas whose
+    (smoothed) colour differs clearly from the background and that are not
+    spore-coloured objects. A spore mount -- even a dense one -- is mostly
+    background plus spores (~0-25%); a tissue squash is not (30%+).
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     center, r = find_fov_circle(gray)
     inner = fov_mask(gray.shape, center, r, shrink=0.85) > 0
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    spores, _ = spore_silhouettes(hsv, fov_mask(gray.shape, center, r, shrink=0.97))
+    spores = cv2.dilate(spores, np.ones((15, 15), np.uint8))[inner] > 0
     lab = cv2.cvtColor(cv2.GaussianBlur(img_bgr, (0, 0), 4), cv2.COLOR_BGR2LAB)
     lab = lab[inner].astype(np.float32)
-    diff = np.linalg.norm(lab - np.median(lab, axis=0), axis=1)
-    return float(np.mean(diff > delta_e))
+    differs = np.linalg.norm(lab - np.median(lab, axis=0), axis=1) > delta_e
+    return float(np.mean(differs & ~spores))
 
 
 def near_ruler(spore, calib, margin_px=60, half_len_ticks=55):
@@ -128,7 +132,7 @@ def draw_overlay(img_bgr, kept, um_per_px):
 def process_image(path, out_dir, um_per_tick=1.0,
                   min_length_um=3.0, max_length_um=25.0,
                   min_width_um=1.5, max_width_um=18.0,
-                  include_touching=False, max_crowded=0.25,
+                  include_touching=False, max_clutter=0.28,
                   save_debug=True):
     """
     Calibrate, segment and measure one image, writing its CSV and overlay
@@ -142,10 +146,10 @@ def process_image(path, out_dir, um_per_tick=1.0,
     debug_prefix = os.path.join(out_dir, stem) if save_debug else None
 
     check_micrograph(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
-    crowded = crowded_fraction(img)
-    if crowded > max_crowded:
-        raise PhotoRejected(f"crowded field ({crowded:.0%} of view is not background; "
-                            f"tissue rather than a spore mount?)")
+    clutter = clutter_fraction(img)
+    if clutter > max_clutter:
+        raise PhotoRejected(f"cluttered field ({clutter:.0%} of view is neither background "
+                            f"nor spores; tissue rather than a spore mount?)")
 
     calib = calibrate_image(img, microns_per_tick=um_per_tick, debug_prefix=debug_prefix)
     um_per_px = calib["microns_per_px"]
