@@ -20,8 +20,8 @@ uses a different convention) to get the microns-per-pixel calibration.
 
 import cv2
 import numpy as np
-from scipy.signal import find_peaks
 from scipy.ndimage import gaussian_filter1d
+from scipy.signal import find_peaks
 
 from .errors import PhotoRejected
 from .fov import find_fov_circle, fov_mask

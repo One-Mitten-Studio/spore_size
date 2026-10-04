@@ -9,6 +9,7 @@ import pytest
 from spore_size import calibrate_image, process_image, segment_spores
 from spore_size.cli import directory_labels, main
 from spore_size.errors import PhotoRejected
+
 from conftest import SAMPLE, SAMPLE_PX_PER_TICK, SAMPLE_RULER_ANGLE_DEG, SPORES, make_image
 
 ISOLATED = SPORES[:4]  # the last two synthetic spores touch each other

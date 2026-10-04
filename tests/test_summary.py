@@ -6,8 +6,8 @@ from spore_size.summary import describe, format_table, q_systematic, summary_row
 
 def _rows(image, lengths, widths):
     return [
-        {"image": image, "length_um": l, "width_um": w, "Q_ratio": l / w}
-        for l, w in zip(lengths, widths)
+        {"image": image, "length_um": length, "width_um": width, "Q_ratio": length / width}
+        for length, width in zip(lengths, widths)
     ]
 
 

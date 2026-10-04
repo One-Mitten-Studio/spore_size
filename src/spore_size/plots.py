@@ -19,12 +19,12 @@ import os
 import matplotlib
 
 matplotlib.use("Agg")  # file output only, no display needed
+import matplotlib.patheffects as pe  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 from matplotlib.collections import PatchCollection  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Circle, Ellipse  # noqa: E402
-import matplotlib.patheffects as pe  # noqa: E402
-import numpy as np  # noqa: E402
 
 # fixed-order categorical palette (colour follows the directory, not its rank)
 PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
