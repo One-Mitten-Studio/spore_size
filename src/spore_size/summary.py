@@ -13,6 +13,8 @@ For length, width and Q:
   spores. For Q = L/W it is propagated from the length and width errors.
 - total, the total error of the mean: stat and sys added in quadrature,
   sqrt(sem^2 + sys^2).
+Each row also has a ready-to-paste publication text:
+  "<length> +/- <SD> um (err: <total>) by <width> +/- <SD> um (err: <total>)".
 Directory and "all" rows pool the individual spores (not the image means).
 """
 import csv
@@ -41,6 +43,19 @@ def q_systematic(length_mean, width_mean, sys_error_um):
     return q * np.hypot(sys_error_um / length_mean, sys_error_um / width_mean)
 
 
+def publication_text(r):
+    """'6.46 +/- 0.51 um (err: 0.11) by 4.56 +/- 0.32 um (err: 0.10)'; '' if no spores."""
+    if r["n_spores"] == 0:
+        return ""
+
+    def num(v):
+        return "-" if np.isnan(v) else f"{v:.2f}"
+
+    def part(m):
+        return f"{num(r[m + '_mean'])} +/- {num(r[m + '_sd'])} um (err: {num(r[m + '_total_err'])})"
+    return f"{part('length')} by {part('width')}"
+
+
 def summary_rows(spore_rows, images=None, sys_error_um=DEFAULT_SYS_ERROR_UM):
     """
     Build summary rows from per-spore rows (dicts with "image", "length_um",
@@ -67,6 +82,7 @@ def summary_rows(spore_rows, images=None, sys_error_um=DEFAULT_SYS_ERROR_UM):
                         if has else np.nan)
         for m, _ in MEASURES:  # total error: stat and sys in quadrature
             out[f"{m}_total_err"] = np.hypot(out[f"{m}_sem"], out[f"{m}_sys"])
+        out["publication"] = publication_text(out)
         return out
 
     result = []
@@ -83,6 +99,7 @@ def summary_rows(spore_rows, images=None, sys_error_um=DEFAULT_SYS_ERROR_UM):
 def write_summary_csv(rows, csv_path):
     fields = ["level", "name", "n_images", "n_spores"]
     fields += [f"{m}_{s}" for m, _ in MEASURES for s in STATS]
+    fields.append("publication")
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()

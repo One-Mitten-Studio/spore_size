@@ -92,6 +92,10 @@ For length, width and Q it gives, in this order:
 - `_total_err`: the total error of the mean, stat and sys added in quadrature,
   sqrt(sem² + sys²).
 
+- `publication`: ready to paste, e.g.
+  `6.46 +/- 0.51 um (err: 0.11) by 4.56 +/- 0.32 um (err: 0.10)` --
+  mean +/- SD, with the total error of the mean, for length by width.
+
 Report a mean as `mean ± stat ± sys`, e.g. `6.46 ± 0.05 ± 0.10 µm`, or with
 the total error, `6.46 ± 0.11 µm`. When
 comparing collections measured with the same microscope and scale bar, the

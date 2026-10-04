@@ -128,6 +128,11 @@ def main(argv=None):
               f"sys = {args.sys_error_um} um measurement limit (propagated for Q); "
               f"total = sqrt(stat^2 + sys^2)\n")
         print(format_table(stats))
+        print("\nFor publication:")
+        for r in stats:
+            if r["n_spores"]:
+                name = r["name"] if r["level"] == "image" else f"{r['name']} (total)"
+                print(f"  {name}: {r['publication']}")
 
     return 0 if n_ok else 1
 
