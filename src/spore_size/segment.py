@@ -1,6 +1,6 @@
-"""
-Segment fungal spores in a brightfield micrograph and measure their length x
-width by fitting ellipses to each spore's silhouette.
+"""Segment fungal spores in a brightfield micrograph and measure them.
+
+Length and width come from an ellipse fitted to each spore's silhouette.
 
 Spores here are yellow-brown ovals with a dark red-brown wall, against a
 near-neutral (often slightly pink) background. Air bubbles and oil droplets
@@ -53,6 +53,7 @@ def spore_color_masks(
 
 
 def _fill_holes(mask: Image) -> Image:
+    """Return the mask with every enclosed hole filled in."""
     h, w = mask.shape
     flood = mask.copy()
     cv2.floodFill(flood, np.zeros((h + 2, w + 2), np.uint8), (0, 0), 255)
@@ -66,9 +67,10 @@ def spore_silhouettes(
     interior_sat: int = 35,
     rim_sat: int = 60,
 ) -> tuple[Image, Image]:
-    """
-    Filled mask of spore-coloured objects inside the field of view, plus the
-    raw interior-colour mask. Returns (filled, interior).
+    """Return masks of spore-coloured objects inside the field of view.
+
+    Returns (filled, interior): the objects with their interiors filled in,
+    and the raw interior-colour mask.
     """
     interior, wall = spore_color_masks(hsv, interior_hue, interior_sat, rim_sat)
     mask = cv2.bitwise_and(cv2.bitwise_or(interior, wall), inner_fov)
@@ -176,8 +178,8 @@ def _wall_metrics(
     n_angles: int = 72,
     band: int = 8,
 ) -> tuple[float, float]:
-    """
-    Sample the spore outline along radial lines through the fitted ellipse.
+    """Sample the spore outline along radial lines through the fitted ellipse.
+
     Returns (sharpness, wall_level): the median over the outline of the
     strongest edge gradient and of the darkest grey level within +-band px.
     An in-focus spore has a crisp, dark wall: high sharpness, low wall_level.
@@ -217,9 +219,10 @@ def segment_spores(
     fov_margin: float = 0.95,
     debug_prefix: str | None = None,
 ) -> list[Spore]:
-    """
-    Returns a list of dicts, one per detected spore, each with the fitted
-    ellipse (center, length/width in px, angle) and quality metrics.
+    """Detect clean spores in a BGR image and fit an ellipse to each.
+
+    Returns a list of dicts, one per spore, each with the fitted ellipse
+    (center, length/width in px, angle) and quality metrics.
 
     min_sharpness and max_wall_level are relative to the background grey
     level: the wall's edge gradient must be at least min_sharpness x

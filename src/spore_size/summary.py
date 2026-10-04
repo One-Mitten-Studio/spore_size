@@ -1,6 +1,6 @@
-"""
-Summary statistics for a run: one row per image, per image directory and for
-all spores together, written to a single CSV.
+"""Summary statistics for a run, written to a single CSV.
+
+There is one row per image, per image directory and for all spores together.
 
 For length, width and Q:
 - mean
@@ -56,9 +56,11 @@ def publication_text(r: SummaryRow) -> str:
         return ""
 
     def num(v: float) -> str:
+        """Format a value to 2 decimals, or "-" if missing."""
         return "-" if np.isnan(v) else f"{v:.2f}"
 
     def part(m: str) -> str:
+        """Return "<mean> ± <SD> µm (err: <total>)" for one measure."""
         return f"{num(r[m + '_mean'])} ± {num(r[m + '_sd'])} µm (err: {num(r[m + '_total_err'])})"
 
     return f"{part('length')} by {part('width')}"
@@ -69,11 +71,12 @@ def summary_rows(
     images: Iterable[str] | None = None,
     sys_error_um: float = DEFAULT_SYS_ERROR_UM,
 ) -> list[SummaryRow]:
-    """
-    Build summary rows from per-spore rows (dicts with "image", "length_um",
-    "width_um", "Q_ratio"). Grouped as: each directory's images followed by
-    that directory's total, then a final row for all spores. Pass images
-    (in processing order) to also list images where no spore was kept.
+    """Build summary rows from per-spore rows.
+
+    Each spore row is a dict with "image", "length_um", "width_um" and
+    "Q_ratio". Rows are grouped as each directory's images followed by that
+    directory's total, then a final row for all spores. Pass images (in
+    processing order) to also list images where no spore was kept.
     """
     if images is None:
         images = [r["image"] for r in spore_rows]
@@ -82,6 +85,7 @@ def summary_rows(
     has_dirs = any(dirs)
 
     def row(level: str, name: str, rows: list[Spore]) -> SummaryRow:
+        """Return the summary row for one group of spores."""
         out: SummaryRow = {
             "level": level,
             "name": name,
@@ -119,6 +123,7 @@ def summary_rows(
 
 
 def write_summary_csv(rows: list[SummaryRow], csv_path: str) -> None:
+    """Write the summary rows to a CSV, with blanks for missing values."""
     fields = ["level", "name", "n_images", "n_spores"]
     fields += [f"{m}_{s}" for m, _ in MEASURES for s in STATS]
     fields.append("publication")
@@ -142,9 +147,11 @@ def format_table(rows: list[SummaryRow]) -> str:
     """Plain-text version of the summary for the terminal."""
 
     def num(v: float, fmt: str) -> str:
+        """Format a value with fmt, or "-" if missing."""
         return "-" if np.isnan(v) else format(v, fmt)
 
     def cells(r: SummaryRow, m: str, fmt: str, width: int) -> str:
+        """Return one measure's mean, SD, stat, sys and total as aligned columns."""
         return "".join(f"{num(r[f'{m}_{s}'], fmt):>{width}}" for s in STATS)
 
     lw, qw = 6, 7  # column widths for length/width and for Q

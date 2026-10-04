@@ -1,12 +1,13 @@
-"""
-End-to-end spore sizing for a single micrograph:
-  1. reject photos that are not usable spore micrographs: no microscope
-     field of view, no reliable scale bar, or a cluttered field (tissue)
-  2. auto-calibrate the ocular-micrometer scale bar (calibration.py)
-  3. segment clean, in-focus spores (segment.py)
-  4. convert to microns, drop spores on the scale bar, outside the plausible
-     size range, or oddly sized compared with the rest of the photo
-  5. write an annotated overlay + a CSV of measurements
+"""End-to-end spore sizing for a single micrograph.
+
+Steps:
+1. Reject photos that are not usable spore micrographs: no microscope
+   field of view, no reliable scale bar, or a cluttered field (tissue).
+2. Auto-calibrate the ocular-micrometer scale bar (calibration.py).
+3. Segment clean, in-focus spores (segment.py).
+4. Convert to microns; drop spores on the scale bar, outside the plausible
+   size range, or oddly sized compared with the rest of the photo.
+5. Write an annotated overlay and a CSV of measurements.
 """
 
 from __future__ import annotations
@@ -26,11 +27,12 @@ from .segment import segment_spores, spore_silhouettes
 
 
 def clutter_fraction(img_bgr: Image, delta_e: float = 10.0) -> float:
-    """
-    Fraction of the field of view covered by non-spore clutter: areas whose
-    (smoothed) colour differs clearly from the background and that are not
-    spore-coloured objects. A spore mount -- even a dense one -- is mostly
-    background plus spores (~0-25%); a tissue squash is not (30%+).
+    """Return the fraction of the field of view covered by non-spore clutter.
+
+    Clutter is any area whose (smoothed) colour differs clearly from the
+    background and that is not a spore-coloured object. A spore mount -- even
+    a dense one -- is mostly background plus spores (~0-25%); a tissue squash
+    is not (30%+).
     """
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     center, r = find_fov_circle(gray)
@@ -47,7 +49,7 @@ def clutter_fraction(img_bgr: Image, delta_e: float = 10.0) -> float:
 def near_ruler(
     spore: Spore, calib: Calibration, margin_px: float = 60, half_len_ticks: float = 55
 ) -> bool:
-    """True if the spore lies on or right next to the scale bar."""
+    """Return True if the spore lies on or right next to the scale bar."""
     cx, cy = calib["center"]
     ang = np.radians(calib["angle_deg"])
     d = np.array([np.cos(ang), np.sin(ang)])
@@ -61,10 +63,10 @@ def near_ruler(
 def drop_size_outliers(
     spores: list[Spore], k: float = 3.0, min_rel_spread: float = 0.04, min_n: int = 5
 ) -> list[Spore]:
-    """
-    Drop spores whose length or width is far from the photo's median
-    (more than k robust SDs, with the SD floored at min_rel_spread x median).
-    Skipped when fewer than min_n spores.
+    """Drop spores whose length or width is far from the photo's median.
+
+    Far means more than k robust SDs, with the SD floored at min_rel_spread x
+    median. Nothing is dropped when there are fewer than min_n spores.
     """
     if len(spores) < min_n:
         return spores
@@ -125,6 +127,7 @@ def summarize(kept: list[Spore], um_per_px: float) -> dict[str, Any]:
 
 
 def write_measurements_csv(kept: list[Spore], csv_path: str) -> None:
+    """Write one line per measured spore of a photo, in microns and pixels."""
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(
@@ -185,10 +188,11 @@ def process_image(
     max_clutter: float = 0.28,
     save_debug: bool = True,
 ) -> tuple[dict[str, Any], list[Spore]]:
-    """
-    Calibrate, segment and measure one image, writing its CSV and overlay
-    into out_dir. Returns (summary_dict, kept_spores).
-    Raises PhotoRejected if the photo is not a usable spore micrograph.
+    """Calibrate, segment and measure one image.
+
+    Writes the image's CSV and overlay into out_dir and returns
+    (summary_dict, kept_spores). Raises PhotoRejected if the photo is not a
+    usable spore micrograph.
     """
     img = cv2.imread(path)
     if img is None:

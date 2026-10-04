@@ -1,6 +1,7 @@
-"""
-Automatic calibration of a diagonal ocular-micrometer scale bar overlaid on
-mushroom spore micrographs (the "0....10....20....100" hatched ruler).
+"""Automatic calibration of the ocular-micrometer scale bar in a micrograph.
+
+The scale bar is the diagonal "0....10....20....100" hatched ruler overlaid
+on mushroom spore micrographs.
 
 Pipeline:
  1. Locate the field-of-view circle, and the ruler as the densest blob of
@@ -34,6 +35,7 @@ from .fov import find_fov_circle, fov_mask
 
 
 def _achromatic_edges(img_bgr: Image, fov_center: Point, fov_radius: float) -> Image:
+    """Return edge pixels that are colourless (like the ruler), inside the field of view."""
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     sat = hsv[:, :, 1]
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
@@ -45,6 +47,10 @@ def _achromatic_edges(img_bgr: Image, fov_center: Point, fov_radius: float) -> I
 
 
 def _ruler_region_mask(edges_achromatic: Image) -> Image:
+    """Return a mask of the ruler: the largest region dense in colourless edges.
+
+    Raises RuntimeError if no such region is found.
+    """
     density = cv2.boxFilter((edges_achromatic > 0).astype(np.float32), -1, (25, 25))
     dense_mask = cv2.morphologyEx(
         (density > 0.10).astype(np.uint8) * 255, cv2.MORPH_CLOSE, np.ones((45, 45), np.uint8)
@@ -59,6 +65,11 @@ def _ruler_region_mask(edges_achromatic: Image) -> Image:
 
 
 def _fit_ruler_line(edges_in_region: Image) -> dict[str, Any]:
+    """Fit the ruler's centre line through the midpoints of its tick strokes.
+
+    Returns a dict with angle_deg, center and n_ticks. Raises RuntimeError if
+    too few tick segments are found.
+    """
     lines = cv2.HoughLinesP(
         edges_in_region, 1, np.pi / 360, threshold=15, minLineLength=8, maxLineGap=2
     )
@@ -97,6 +108,13 @@ def _longest_regular_run(peaks: NDArray[np.intp], px_per_tick: float, tol: float
 def _measure_spacing(
     gray: Image, center: Point, angle_deg: float, strip_len: int = 1600, strip_half_h: int = 25
 ) -> tuple[float, int, NDArray[np.float32], NDArray[np.intp]]:
+    """Measure the tick spacing along the ruler line.
+
+    Rotates the image so the ruler is horizontal, takes the darkest value
+    across a strip along it, and finds the ticks as peaks in that profile.
+    Returns (px_per_tick, number of ticks, strip, tick positions). Raises
+    RuntimeError if too few ticks are found.
+    """
     h, w = gray.shape
     M = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
     rot = cv2.warpAffine(gray, M, (w, h))
@@ -125,9 +143,10 @@ def calibrate_image(
     min_regular_ticks: int = 8,
     debug_prefix: str | None = None,
 ) -> Calibration:
-    """
-    Detect the scale bar in a BGR image and return its calibration as a dict
-    with px_per_tick, microns_per_px, angle_deg, center and n_peaks.
+    """Detect the scale bar in a BGR image and return its calibration.
+
+    The result has px_per_tick, microns_per_px, angle_deg, center, n_peaks
+    and regular_run.
 
     If debug_prefix is given, writes <prefix>_calib_overlay.png (green line =
     detected ruler) and <prefix>_calib_strip.png (red lines = detected ticks).

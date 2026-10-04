@@ -166,7 +166,7 @@ saturation/brightness 0-255):
     pip install -e ".[dev]"
     pytest
     black src tests        # code formatting (line length 100, set in pyproject.toml)
-    ruff check src tests   # linting (rules set in pyproject.toml; --fix for auto-fixes)
+    ruff check src tests   # linting incl. PEP 257 docstrings (rules in pyproject.toml; --fix)
     mypy                   # type checking (settings in pyproject.toml)
 
 All functions in the package have type annotations, and mypy requires them

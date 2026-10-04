@@ -1,5 +1,4 @@
-"""
-Command-line entry point.
+"""Command-line entry point.
 
 Usage:
     spore-size <image.jpg> [more images...] [--out-dir DIR] [--um-per-tick 1.0]
@@ -29,6 +28,7 @@ from .summary import DEFAULT_SYS_ERROR_UM, format_table, summary_rows, write_sum
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
     ap = argparse.ArgumentParser(
         prog="spore-size",
         description="Measure spore length x width (um) from micrographs with an "
@@ -78,6 +78,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def write_combined_csv(rows: list[Spore], csv_path: str) -> None:
+    """Write one line per spore: image path, length, width and Q."""
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["image", "length_um", "width_um", "Q_ratio"])
@@ -88,13 +89,14 @@ def write_combined_csv(rows: list[Spore], csv_path: str) -> None:
 
 
 def directory_labels(dirs: Sequence[str]) -> dict[str, str]:
-    """
-    Short, unique file-name labels for image directories: the last path
-    component (e.g. "inat255552721"), or the whole path joined with "_" when
-    two directories share a last component.
+    """Return short, unique file-name labels for image directories.
+
+    The label is the last path component (e.g. "inat255552721"), or the whole
+    path joined with "_" when two directories share a last component.
     """
 
     def last(d: str) -> str:
+        """Return the last component of a directory path."""
         return os.path.basename(os.path.normpath(d))
 
     labels = {}
@@ -106,6 +108,10 @@ def directory_labels(dirs: Sequence[str]) -> dict[str, str]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run spore-size on the given images; return the process exit code.
+
+    The exit code is 0 if at least one image was measured, otherwise 1.
+    """
     args = build_parser().parse_args(argv)
 
     os.makedirs(args.out_dir, exist_ok=True)

@@ -1,6 +1,7 @@
-"""
-Length vs width plots of measured spores: one per image, one per image
-directory and one for all spores in the run.
+"""Length vs width plots of measured spores.
+
+One plot per image, one per image directory and one for all spores in the
+run.
 
 Each spore is a semi-transparent circle with a thin black edge, centred on
 its (length, width) in um, with a radius equal to the systematic measurement
@@ -91,9 +92,10 @@ def plot_spores(
     limits: Limits,
     radius_um: float,
 ) -> None:
-    """
-    groups: list of (label, colour, rows). A legend is drawn when there is
-    more than one group.
+    """Plot spores as circles with mean ± 1 SD ellipses and save to path.
+
+    groups is a list of (label, colour, rows); a legend is drawn when there
+    is more than one group.
     """
     fig, ax = plt.subplots(figsize=(7, 5.5), dpi=150)
     for _, colour, rows in groups:
@@ -171,6 +173,7 @@ def plot_spores(
 
 
 def _rgba(hex_colour: str, alpha: float) -> tuple[float, float, float, float]:
+    """Convert a "#rrggbb" colour and an alpha to a matplotlib RGBA tuple."""
     r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
     return (r, g, b, alpha)
 
@@ -182,10 +185,11 @@ def write_plots(
     dir_labels: dict[str, str],
     radius_um: float,
 ) -> list[str]:
-    """
-    Write <image stem>_spore_plot.png per image, <dir label>_spore_plot.png
+    """Write all plots for a run and return their paths.
+
+    Writes <image stem>_spore_plot.png per image, <dir label>_spore_plot.png
     per directory and all_spores_plot.png. summary is the list from
-    summary.summary_rows (for subtitles). Returns the written paths.
+    summary.summary_rows (used for the subtitles).
     """
     if not spore_rows:
         return []
@@ -196,6 +200,7 @@ def write_plots(
     paths = []
 
     def subtitle(row: SummaryRow) -> str:
+        """Return the plot subtitle: spore count and publication text."""
         return f"n = {row['n_spores']}   {row['publication']}"
 
     for img in dict.fromkeys(r["image"] for r in spore_rows):

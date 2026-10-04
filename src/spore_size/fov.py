@@ -21,7 +21,7 @@ def find_fov_circle(gray: Image, threshold: int = 20) -> tuple[Point, float]:
 
 
 def fov_mask(shape: tuple[int, ...], center: Point, radius: float, shrink: float = 1.0) -> Image:
-    """Filled circular mask of the FOV, optionally shrunk by a factor."""
+    """Return a filled circular mask of the FOV, optionally shrunk by a factor."""
     out = np.zeros(shape[:2], np.uint8)
     cv2.circle(out, (int(center[0]), int(center[1])), int(radius * shrink), 255, -1)
     return out
@@ -30,9 +30,9 @@ def fov_mask(shape: tuple[int, ...], center: Point, radius: float, shrink: float
 def check_micrograph(
     gray: Image, min_circle_fill: float = 0.9, min_dark_fraction: float = 0.1
 ) -> None:
-    """
-    Raise PhotoRejected unless the image looks like a photo down a microscope:
-    a bright, circular field of view surrounded by a dark border.
+    """Raise PhotoRejected unless the image looks like a photo down a microscope.
+
+    That is: a bright, circular field of view surrounded by a dark border.
     """
     (cx, cy), r = find_fov_circle(gray)
     _, mask = cv2.threshold(gray, 20, 255, cv2.THRESH_BINARY)
