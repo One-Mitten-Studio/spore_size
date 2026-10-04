@@ -56,8 +56,12 @@ measure a doubtful one.
    - clear of the scale bar and of the edge of the field of view,
    - single, well-fit ovals of plausible size, not much paler or darker than
      a pigmented spore should be,
-   - not oddly sized compared with the other spores in the same photo
-     (more than ~3 robust SDs from the photo's median length or width).
+   - not oddly sized: more than ~3 robust SDs from the median length or
+     width of all spores from the same directory (collection), pooled over
+     its photos. This mainly removes two overlapping spores measured as
+     one, which are roughly 1.5-2x the normal size; pooling the directory
+     keeps a few of them in one photo from skewing that photo's median. The
+     terminal reports how many were removed per directory.
 5. Writes, into --out-dir:
    - `<photo>_spore_overlay.png`   - annotated image, red ellipse per measured spore
    - `<photo>_spore_measurements.csv` - length_um, width_um, Q ratio per spore

@@ -9,6 +9,7 @@ import pytest
 from spore_size import calibrate_image, process_image, segment_spores
 from spore_size.cli import directory_labels, main
 from spore_size.errors import PhotoRejected
+from spore_size.measure import drop_outliers_by_directory
 
 from conftest import SAMPLE, SAMPLE_PX_PER_TICK, SAMPLE_RULER_ANGLE_DEG, SPORES, make_image
 
@@ -153,3 +154,21 @@ def test_cli_combined_csvs_per_directory(tmp_path):
 def test_directory_labels_disambiguate_same_name():
     labels = directory_labels(["a/x", "b/x", "c/y"])
     assert labels == {"a/x": "a_x", "b/x": "b_x", "c/y": "y"}
+
+
+def _spore(length, width):
+    return {"length_um": length, "width_um": width, "Q_ratio": length / width}
+
+
+def test_outliers_judged_per_directory():
+    # photo a: half its detections are merged pairs (~2x length), which skews
+    # its own median; pooled with photo b of the same directory they stand out
+    rng = np.random.default_rng(0)
+    normal = [_spore(7.0 + d, 5.0 + d / 2) for d in rng.normal(0, 0.3, 23)]
+    merged = [_spore(11.0, 7.5), _spore(11.3, 7.2), _spore(10.4, 4.8)]
+    spores = {"coll/a.jpg": normal[:3] + merged, "coll/b.jpg": normal[3:], "other/c.jpg": merged}
+    kept, removed = drop_outliers_by_directory(spores)
+    assert removed == {"coll": 3, "other": 0}  # "other" is too small to judge
+    assert len(kept["coll/a.jpg"]) == 3 and len(kept["coll/b.jpg"]) == 20
+    assert all(s["length_um"] < 9 for s in kept["coll/a.jpg"])
+    assert all(s["image"] == "coll/a.jpg" for s in kept["coll/a.jpg"])

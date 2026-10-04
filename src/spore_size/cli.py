@@ -20,9 +20,9 @@ import os
 import sys
 from collections.abc import Sequence
 
-from ._types import Spore
+from ._types import Calibration, Spore
 from .errors import PhotoRejected
-from .measure import process_image
+from .measure import analyze_image, drop_outliers_by_directory, write_image_outputs
 from .plots import write_plots
 from .summary import DEFAULT_SYS_ERROR_UM, format_table, summary_rows, write_summary_csv
 
@@ -115,12 +115,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     os.makedirs(args.out_dir, exist_ok=True)
-    all_rows: list[Spore] = []
-    processed: list[str] = []
-    n_ok = 0
+
+    # 1. check, calibrate and segment every image
+    analyzed: dict[str, tuple[Calibration, list[Spore]]] = {}
     for path in args.images:
         try:
-            summary, kept = process_image(
+            analyzed[path] = analyze_image(
                 path,
                 args.out_dir,
                 um_per_tick=args.um_per_tick,
@@ -134,20 +134,31 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         except PhotoRejected as e:
             print(f"[SKIPPED] {os.path.basename(path)}: {e}", file=sys.stderr)
-            continue
         except Exception as e:
             print(f"[FAILED] {path}: {e}", file=sys.stderr)
-            continue
-        n_ok += 1
-        processed.append(path)
+    processed = list(analyzed)
+
+    # 2. drop size outliers with each directory's spores pooled
+    kept_by_image, removed = drop_outliers_by_directory(
+        {path: analyzed[path][1] for path in processed}
+    )
+    for d, n_removed in removed.items():
+        if n_removed:
+            print(f"{d or '.'}: {n_removed} size outlier(s) removed")
+
+    # 3. write each image's measurements and overlay
+    all_rows: list[Spore] = []
+    for path in processed:
+        calib, _ = analyzed[path]
+        kept = kept_by_image[path]
+        summary = write_image_outputs(path, args.out_dir, kept, calib["microns_per_px"])
         print(
             f"{os.path.basename(path)}: n={summary['n']}  "
             f"L={summary['length_mean']:.2f}±{summary['length_sd']:.2f} um  "
             f"W={summary['width_mean']:.2f}±{summary['width_sd']:.2f} um  "
             f"Q={summary['Q_mean']:.2f}  ({summary['um_per_px']:.4f} um/px)"
         )
-        for s in kept:
-            all_rows.append({"image": path, **s})
+        all_rows.extend(kept)
 
     if all_rows:
         combined_path = os.path.join(args.out_dir, "all_spores_combined.csv")
@@ -186,7 +197,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             print(f"\nPlots: {len(plot_paths)} written to {args.out_dir} (*_spore_plot.png)")
 
-    return 0 if n_ok else 1
+    return 0 if processed else 1
 
 
 if __name__ == "__main__":

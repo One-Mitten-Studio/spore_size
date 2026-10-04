@@ -6,7 +6,8 @@ Steps:
 2. Auto-calibrate the ocular-micrometer scale bar (calibration.py).
 3. Segment clean, in-focus spores (segment.py).
 4. Convert to microns; drop spores on the scale bar, outside the plausible
-   size range, or oddly sized compared with the rest of the photo.
+   size range, or oddly sized compared with the other spores of the photo
+   (or, from the command line, of the whole directory).
 5. Write an annotated overlay and a CSV of measurements.
 """
 
@@ -63,7 +64,7 @@ def near_ruler(
 def drop_size_outliers(
     spores: list[Spore], k: float = 3.0, min_rel_spread: float = 0.04, min_n: int = 5
 ) -> list[Spore]:
-    """Drop spores whose length or width is far from the photo's median.
+    """Drop spores whose length or width is far from the group's median.
 
     Far means more than k robust SDs, with the SD floored at min_rel_spread x
     median. Nothing is dropped when there are fewer than min_n spores.
@@ -77,6 +78,33 @@ def drop_size_outliers(
         sd = max(1.4826 * np.median(np.abs(x - med)), min_rel_spread * med)
         keep &= np.abs(x - med) <= k * sd
     return [s for s, ok in zip(spores, keep, strict=True) if ok]
+
+
+def drop_outliers_by_directory(
+    spores_by_image: dict[str, list[Spore]],
+) -> tuple[dict[str, list[Spore]], dict[str, int]]:
+    """Drop size outliers with all spores of an image directory pooled.
+
+    One directory is one collection. Judging each photo on its own lets a
+    few bad detections (e.g. two overlapping spores measured as one) skew
+    that photo's median when it has few spores; pooling the directory keeps
+    them a small minority. Returns the kept spores per image (each tagged
+    with "image") and the number removed per directory.
+    """
+    kept_by_image: dict[str, list[Spore]] = {path: [] for path in spores_by_image}
+    removed: dict[str, int] = {}
+    for d in dict.fromkeys(os.path.dirname(path) for path in spores_by_image):
+        pooled = [
+            {**s, "image": path}
+            for path, spores in spores_by_image.items()
+            if os.path.dirname(path) == d
+            for s in spores
+        ]
+        kept = drop_size_outliers(pooled)
+        for s in kept:
+            kept_by_image[s["image"]].append(s)
+        removed[d] = len(pooled) - len(kept)
+    return kept_by_image, removed
 
 
 def filter_spores(
@@ -176,7 +204,7 @@ def draw_overlay(img_bgr: Image, kept: list[Spore], um_per_px: float) -> Image:
     return overlay
 
 
-def process_image(
+def analyze_image(
     path: str,
     out_dir: str,
     um_per_tick: float = 1.0,
@@ -187,12 +215,13 @@ def process_image(
     include_touching: bool = False,
     max_clutter: float = 0.28,
     save_debug: bool = True,
-) -> tuple[dict[str, Any], list[Spore]]:
-    """Calibrate, segment and measure one image.
+) -> tuple[Calibration, list[Spore]]:
+    """Check, calibrate and segment one image; return (calibration, spores).
 
-    Writes the image's CSV and overlay into out_dir and returns
-    (summary_dict, kept_spores). Raises PhotoRejected if the photo is not a
-    usable spore micrograph.
+    Spores on the scale bar or outside the size limits are dropped, but no
+    size-outlier check is done, so that it can be done over more spores
+    (see drop_size_outliers). Only the calibration diagnostics are written.
+    Raises PhotoRejected if the photo is not a usable spore micrograph.
     """
     img = cv2.imread(path)
     if img is None:
@@ -209,27 +238,70 @@ def process_image(
         )
 
     calib = calibrate_image(img, microns_per_tick=um_per_tick, debug_prefix=debug_prefix)
-    um_per_px = calib["microns_per_px"]
-
     raw_spores = segment_spores(img, include_touching=include_touching)
     raw_spores = [s for s in raw_spores if not near_ruler(s, calib)]
-    kept = filter_spores(
+    spores = filter_spores(
         raw_spores,
-        um_per_px,
+        calib["microns_per_px"],
         min_length_um=min_length_um,
         max_length_um=max_length_um,
         min_width_um=min_width_um,
         max_width_um=max_width_um,
     )
-    kept = drop_size_outliers(kept)
+    return calib, spores
 
+
+def write_image_outputs(
+    path: str, out_dir: str, kept: list[Spore], um_per_px: float
+) -> dict[str, Any]:
+    """Write one image's measurements CSV and overlay; return its summary."""
+    stem = os.path.splitext(os.path.basename(path))[0]
     csv_path = os.path.join(out_dir, f"{stem}_spore_measurements.csv")
     write_measurements_csv(kept, csv_path)
 
+    img = cv2.imread(path)
+    if img is None:
+        raise RuntimeError(f"Could not read image: {path}")
     overlay_path = os.path.join(out_dir, f"{stem}_spore_overlay.png")
     cv2.imwrite(overlay_path, draw_overlay(img, kept, um_per_px))
 
     summary = summarize(kept, um_per_px)
     summary["csv_path"] = csv_path
     summary["overlay_path"] = overlay_path
+    return summary
+
+
+def process_image(
+    path: str,
+    out_dir: str,
+    um_per_tick: float = 1.0,
+    min_length_um: float = 3.0,
+    max_length_um: float = 25.0,
+    min_width_um: float = 1.5,
+    max_width_um: float = 18.0,
+    include_touching: bool = False,
+    max_clutter: float = 0.28,
+    save_debug: bool = True,
+) -> tuple[dict[str, Any], list[Spore]]:
+    """Calibrate, segment and measure one image on its own.
+
+    Size outliers are judged within this image only (the command line pools
+    each directory instead). Writes the image's CSV and overlay into out_dir
+    and returns (summary_dict, kept_spores). Raises PhotoRejected if the
+    photo is not a usable spore micrograph.
+    """
+    calib, spores = analyze_image(
+        path,
+        out_dir,
+        um_per_tick=um_per_tick,
+        min_length_um=min_length_um,
+        max_length_um=max_length_um,
+        min_width_um=min_width_um,
+        max_width_um=max_width_um,
+        include_touching=include_touching,
+        max_clutter=max_clutter,
+        save_debug=save_debug,
+    )
+    kept = drop_size_outliers(spores)
+    summary = write_image_outputs(path, out_dir, kept, calib["microns_per_px"])
     return summary, kept
