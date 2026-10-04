@@ -19,6 +19,7 @@ import sys
 
 from .errors import PhotoRejected
 from .measure import process_image
+from .plots import write_plots
 from .summary import DEFAULT_SYS_ERROR_UM, format_table, summary_rows, write_summary_csv
 
 
@@ -45,6 +46,8 @@ def build_parser():
     ap.add_argument("--sys-error-um", type=float, default=DEFAULT_SYS_ERROR_UM,
                     help="systematic error of a length measurement in um, e.g. the "
                          "light microscope's resolution limit (default: %(default)s)")
+    ap.add_argument("--no-plots", action="store_true",
+                    help="skip the length vs width plots")
     ap.add_argument("--no-debug", action="store_true",
                     help="skip writing the calibration diagnostic images")
     return ap
@@ -113,7 +116,8 @@ def main(argv=None):
 
         # one combined CSV per image directory, if images came from directories
         dirs = sorted({os.path.dirname(r["image"]) for r in all_rows} - {""})
-        for d, label in directory_labels(dirs).items():
+        dir_labels = directory_labels(dirs)
+        for d, label in dir_labels.items():
             rows = [r for r in all_rows if os.path.dirname(r["image"]) == d]
             dir_path = os.path.join(args.out_dir, f"{label}_spores_combined.csv")
             write_combined_csv(rows, dir_path)
@@ -133,6 +137,11 @@ def main(argv=None):
             if r["n_spores"]:
                 name = r["name"] if r["level"] == "image" else f"{r['name']} (total)"
                 print(f"  {name}: {r['publication']}")
+
+        if all_rows and not args.no_plots:
+            plot_paths = write_plots(all_rows, stats, args.out_dir, dir_labels,
+                                     radius_um=args.sys_error_um)
+            print(f"\nPlots: {len(plot_paths)} written to {args.out_dir} (*_spore_plot.png)")
 
     return 0 if n_ok else 1
 

@@ -65,6 +65,8 @@ measure a doubtful one.
    - `<photo>_calib_strip.png`     - diagnostic: ruler profile, red = detected ticks
      (skip both diagnostics with `--no-debug`)
    - `spore_summary.csv`           - statistics for the whole run (see below)
+   - `*_spore_plot.png`            - length vs width plots: one per photo, one
+     per directory and `all_spores_plot.png` (see below; `--no-plots` to skip)
    - `all_spores_combined.csv`     - every spore from every photo, one file;
      the `image` column is the path exactly as given on the command line
    - `<dir>_spores_combined.csv`   - the same, for each directory the images
@@ -105,6 +107,14 @@ against the statistical errors.
 The "all" row pools every photo on the command line; only read it as one
 population if all photos are of the same collection.
 
+## Plots
+Each plot shows every measured spore as a semi-transparent circle with a thin
+black edge, centred on its length and width, with a radius equal to the
+systematic error (0.1 µm by default). Both axes use the same µm scale, and
+all plots of a run share the same axis ranges, so photos and collections can
+be compared by eye. Each directory has its own colour, used for its photos,
+its own plot and its group in `all_spores_plot.png`.
+
 ## Assumptions / things to check
 - **Magnification:** the scale bar is in the eyepiece, so its ticks are the
   same number of pixels apart at every objective -- the program cannot tell
@@ -142,6 +152,7 @@ saturation/brightness 0-255):
         measure.py       per-image pipeline: filter, CSV, overlay
         fov.py           microscope field-of-view detection / micrograph check
         errors.py        PhotoRejected (photo skipped, not an error)
+        plots.py         length vs width plots
         summary.py       run statistics (mean, SD, stat/sys/total errors) -> spore_summary.csv
         cli.py           `spore-size` command
     tests/               pytest suite (real micrograph + synthetic spores)

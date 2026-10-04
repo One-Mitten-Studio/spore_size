@@ -136,6 +136,11 @@ def test_cli_combined_csvs_per_directory(tmp_path):
         with open(out / f"{d}_spores_combined.csv") as f:
             assert {r["image"] for r in csv.DictReader(f)} == {img}
 
+    # one plot per image, per directory and for all spores
+    for name in ("collA_photo_spore_plot.png", "collB_photo_spore_plot.png",
+                 "collA_spore_plot.png", "collB_spore_plot.png", "all_spores_plot.png"):
+        assert (out / name).stat().st_size > 0
+
 
 def test_directory_labels_disambiguate_same_name():
     labels = directory_labels(["a/x", "b/x", "c/y"])
