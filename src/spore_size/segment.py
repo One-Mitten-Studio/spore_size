@@ -95,7 +95,7 @@ def _split_by_seeds(comp: Image, seeds: Image) -> list[Image]:
     _, nearest = cv2.distanceTransformWithLabels(
         cv2.bitwise_not(seeds), cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_CCOMP
     )
-    regions = []
+    regions: list[Image] = []
     for s in range(1, n_seeds):
         lab = nearest[seed_labels == s][0]
         region = ((nearest == lab) & (comp > 0)).astype(np.uint8) * 255
@@ -248,7 +248,7 @@ def segment_spores(
 
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(filled, connectivity=8)
 
-    spores = []
+    spores: list[Spore] = []
     for i in range(1, n_labels):
         x, y, bw, bh, area = stats[i]
         if area < min_area_px:

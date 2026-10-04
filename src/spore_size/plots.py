@@ -18,6 +18,7 @@ per directory, in the directory's colour.
 from __future__ import annotations
 
 import os
+from typing import Final
 
 import matplotlib
 
@@ -38,11 +39,20 @@ Limits = tuple[tuple[float, float], tuple[float, float]]
 Group = tuple[str, str, list[Spore]]
 
 # fixed-order categorical palette (colour follows the directory, not its rank)
-PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
-FILL_ALPHA = 0.35
-TEXT = "#222222"
-MUTED = "#666666"
-GRID = "#e5e5e5"
+PALETTE: Final[tuple[str, ...]] = (
+    "#2a78d6",
+    "#eb6834",
+    "#1baf7a",
+    "#eda100",
+    "#e87ba4",
+    "#008300",
+    "#4a3aa7",
+    "#e34948",
+)
+FILL_ALPHA: Final[float] = 0.35
+TEXT: Final[str] = "#222222"
+MUTED: Final[str] = "#666666"
+GRID: Final[str] = "#e5e5e5"
 
 
 def axis_limits(spore_rows: list[Spore], pad_um: float = 0.4) -> Limits:
@@ -197,7 +207,7 @@ def write_plots(
     pub = {(r["level"], r["name"]): r for r in summary}
     dirs = list(dict.fromkeys(os.path.dirname(r["image"]) for r in spore_rows))
     colour_of = {d: PALETTE[i % len(PALETTE)] for i, d in enumerate(dirs)}
-    paths = []
+    paths: list[str] = []
 
     def subtitle(row: SummaryRow) -> str:
         """Return the plot subtitle: spore count and publication text."""

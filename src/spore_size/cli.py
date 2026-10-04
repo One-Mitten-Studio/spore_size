@@ -99,7 +99,7 @@ def directory_labels(dirs: Sequence[str]) -> dict[str, str]:
         """Return the last component of a directory path."""
         return os.path.basename(os.path.normpath(d))
 
-    labels = {}
+    labels: dict[str, str] = {}
     for d in dirs:
         clash = any(last(o) == last(d) for o in dirs if o != d)
         label = os.path.normpath(d).strip(os.sep).replace(os.sep, "_") if clash else last(d)
@@ -115,8 +115,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     os.makedirs(args.out_dir, exist_ok=True)
-    all_rows = []
-    processed = []
+    all_rows: list[Spore] = []
+    processed: list[str] = []
     n_ok = 0
     for path in args.images:
         try:

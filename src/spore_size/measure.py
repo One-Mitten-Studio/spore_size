@@ -88,7 +88,7 @@ def filter_spores(
     max_width_um: float = 18.0,
 ) -> list[Spore]:
     """Convert spores to microns and keep only those within the size limits."""
-    kept = []
+    kept: list[Spore] = []
     for s in raw_spores:
         length_um = s["length_px"] * um_per_px
         width_um = s["width_px"] * um_per_px

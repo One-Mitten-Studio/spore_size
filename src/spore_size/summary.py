@@ -23,15 +23,20 @@ from __future__ import annotations
 import csv
 import os
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 
 from ._types import Spore, SummaryRow
 
-MEASURES = (("length", "length_um"), ("width", "width_um"), ("Q", "Q_ratio"))
-STATS = ("mean", "sd", "sem", "sys", "total_err")
-DEFAULT_SYS_ERROR_UM = 0.1
+#: (name used in column names, per-spore key)
+MEASURES: Final[tuple[tuple[str, str], ...]] = (
+    ("length", "length_um"),
+    ("width", "width_um"),
+    ("Q", "Q_ratio"),
+)
+STATS: Final[tuple[str, ...]] = ("mean", "sd", "sem", "sys", "total_err")
+DEFAULT_SYS_ERROR_UM: Final[float] = 0.1
 
 
 def describe(values: Iterable[float]) -> dict[str, Any]:
@@ -106,7 +111,7 @@ def summary_rows(
         out["publication"] = publication_text(out)
         return out
 
-    result = []
+    result: list[SummaryRow] = []
     for d in dirs:
         for img in (i for i in images if os.path.dirname(i) == d):
             result.append(row("image", img, [r for r in spore_rows if r["image"] == img]))
