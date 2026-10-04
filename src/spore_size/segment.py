@@ -214,7 +214,11 @@ def segment_spores(
     min_sat_above_bg: float = 25,
     min_rel_brightness: float = 0.75,
     min_sharpness: float = 0.9,
+    rel_sharpness: float = 0.5,
+    sharpness_floor: float = 0.4,
     max_wall_level: float = 0.6,
+    wall_margin: float = 0.12,
+    wall_ceiling: float = 0.8,
     include_touching: bool = False,
     fov_margin: float = 0.95,
     debug_prefix: str | None = None,
@@ -224,9 +228,14 @@ def segment_spores(
     Returns a list of dicts, one per spore, each with the fitted ellipse
     (center, length/width in px, angle) and quality metrics.
 
-    min_sharpness and max_wall_level are relative to the background grey
-    level: the wall's edge gradient must be at least min_sharpness x
-    background, and its darkest part at most max_wall_level x background.
+    Focus checks, in units of the background grey level: a spore's wall
+    edge gradient must reach min_sharpness and its darkest wall level must
+    be at most max_wall_level. Wall contrast and edge softness depend on the
+    microscope setup, so in a low-contrast photo these are relaxed relative
+    to the photo's own spores: gradient at least rel_sharpness x the photo's
+    75th percentile, wall level at most wall_margin above the photo's median.
+    They are never relaxed past sharpness_floor and wall_ceiling (ghost and
+    badly blurred spores), and never made stricter than the fixed limits.
 
     If debug_prefix is given, also writes <prefix>_spore_mask.png and
     <prefix>_spore_overlay.png.
@@ -248,7 +257,7 @@ def segment_spores(
 
     n_labels, labels, stats, _ = cv2.connectedComponentsWithStats(filled, connectivity=8)
 
-    spores: list[Spore] = []
+    candidates: list[Spore] = []
     for i in range(1, n_labels):
         x, y, bw, bh, area = stats[i]
         if area < min_area_px:
@@ -281,12 +290,22 @@ def segment_spores(
             if val < min_rel_brightness * bg_val:
                 continue  # much darker than the field: dirt, smudge or debris
             sharpness, wall_level = _wall_metrics(gray, grad_mag, s["ellipse"])
-            if sharpness < min_sharpness * bg_gray or wall_level > max_wall_level * bg_gray:
-                continue  # soft or faint outline: out of focus, or a ghost/immature spore
             s.update(
                 touching=touching, sharpness=sharpness / bg_gray, wall_level=wall_level / bg_gray
             )
-            spores.append(s)
+            candidates.append(s)
+
+    # focus checks relative to this photo's own spores
+    spores: list[Spore] = []
+    if candidates:
+        typical_sharpness = np.percentile([c["sharpness"] for c in candidates], 75)
+        typical_wall = np.median([c["wall_level"] for c in candidates])
+        sharp_min = max(sharpness_floor, min(min_sharpness, rel_sharpness * typical_sharpness))
+        wall_max = min(wall_ceiling, max(max_wall_level, typical_wall + wall_margin))
+        # soft or faint outline: out of focus, or a ghost/immature spore
+        spores = [
+            c for c in candidates if c["sharpness"] >= sharp_min and c["wall_level"] <= wall_max
+        ]
 
     if debug_prefix:
         overlay = img_bgr.copy()

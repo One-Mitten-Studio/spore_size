@@ -172,3 +172,22 @@ def test_outliers_judged_per_directory():
     assert len(kept["coll/a.jpg"]) == 3 and len(kept["coll/b.jpg"]) == 20
     assert all(s["length_um"] < 9 for s in kept["coll/a.jpg"])
     assert all(s["image"] == "coll/a.jpg" for s in kept["coll/a.jpg"])
+
+
+def test_low_contrast_spores_are_found():
+    """Pale, softer walls (another scope setup) pass the photo-relative focus checks."""
+    img = make_image(low_contrast=True)
+    assert len(segment_spores(img)) == len(ISOLATED)
+    # the fixed limits alone would reject every one of them
+    assert segment_spores(img, sharpness_floor=0.9, wall_ceiling=0.6) == []
+
+
+def test_blurred_spore_among_sharp_ones_is_rejected(synthetic_image):
+    img = synthetic_image.copy()
+    (cx, cy), (length, _), _ = ISOLATED[1]
+    r = length // 2 + 25
+    patch = img[cy - r : cy + r, cx - r : cx + r]
+    img[cy - r : cy + r, cx - r : cx + r] = cv2.GaussianBlur(patch, (0, 0), 6)
+    found = segment_spores(img)
+    assert len(found) == len(ISOLATED) - 1
+    assert all(np.hypot(s["center_px"][0] - cx, s["center_px"][1] - cy) > 20 for s in found)

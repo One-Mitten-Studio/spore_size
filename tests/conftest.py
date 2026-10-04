@@ -41,7 +41,10 @@ BUBBLE_INNER_BGR = (170, 190, 160)  # pale green
 OIL_DROP_BGR = (175, 195, 170)  # pale, nearly colourless
 
 
-def make_image():
+SPORE_WALL_LOW_CONTRAST_BGR = (90, 85, 160)  # paler wall, as with a softer scope setup
+
+
+def make_image(low_contrast=False):
     img = np.zeros((SIZE, SIZE, 3), np.uint8)
     c = SIZE // 2
     cv2.circle(img, (c, c), int(SIZE * 0.48), (175, 175, 175), -1)
@@ -51,13 +54,16 @@ def make_image():
         cv2.circle(img, center, r, BUBBLE_RIM_BGR, 6, cv2.LINE_AA)
     for center, (length, width), angle in SPORES:
         axes = (length // 2, width // 2)
-        cv2.ellipse(img, center, axes, angle, 0, 360, SPORE_WALL_BGR, -1, cv2.LINE_AA)
+        wall = SPORE_WALL_LOW_CONTRAST_BGR if low_contrast else SPORE_WALL_BGR
+        cv2.ellipse(img, center, axes, angle, 0, 360, wall, -1, cv2.LINE_AA)
         inner = (axes[0] - 5, axes[1] - 5)
         cv2.ellipse(img, center, inner, angle, 0, 360, SPORE_INNER_BGR, -1, cv2.LINE_AA)
     # a large central oil drop in the first spore, spanning its whole width
     # so that it cuts the brown interior in two
     (cx, cy), (_, width), _ = SPORES[0]
     cv2.circle(img, (cx, cy), width // 2 - 4, OIL_DROP_BGR, -1, cv2.LINE_AA)
+    if low_contrast:
+        return cv2.GaussianBlur(img, (0, 0), 1.5)  # softer edges
     return img
 
 

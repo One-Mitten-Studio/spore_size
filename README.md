@@ -50,7 +50,9 @@ measure a doubtful one.
    Air bubbles and oil droplets (greenish centres, faint rims) are ignored.
 4. Keeps only spores that are:
    - in focus: a sharp, dark wall all round (ghost, pale and blurred spores
-     are dropped),
+     are dropped). Wall contrast depends on the microscope setup, so in a
+     low-contrast photo the limits are relaxed relative to the photo's own
+     spores (never past fixed minimums, and never made stricter),
    - isolated: not touching another spore (`--include-touching` splits and
      measures touching spores too),
    - clear of the scale bar and of the edge of the field of view,
@@ -150,7 +152,10 @@ saturation/brightness 0-255):
 - `min_sat_above_bg`, `min_rel_brightness`: how much more saturated than the
   background a spore must be, and how dark it may be relative to it.
 - `min_sharpness`, `max_wall_level`: how crisp and dark the spore wall must
-  be, relative to the background (focus strictness).
+  be, relative to the background, to always pass (focus strictness);
+  `rel_sharpness`, `wall_margin`: how far these relax in a low-contrast
+  photo, relative to its own spores; `sharpness_floor`, `wall_ceiling`: the
+  hard limits they never relax past.
 - `min_solidity`, `min_axis_ratio`/`max_axis_ratio`: shape strictness.
 
 ## Project layout
