@@ -22,7 +22,7 @@ def _nearest(spore, candidates):
 
 def test_calibration_on_real_ruler(sample_image):
     r = calibrate_image(sample_image, microns_per_tick=1.0)
-    assert r["px_per_tick"] == pytest.approx(SAMPLE_PX_PER_TICK, rel=0.01)
+    assert r["px_per_tick"] == pytest.approx(SAMPLE_PX_PER_TICK, rel=0.003)
     assert r["microns_per_px"] == pytest.approx(1.0 / SAMPLE_PX_PER_TICK, rel=0.01)
     angle_err = (r["angle_deg"] - SAMPLE_RULER_ANGLE_DEG + 90) % 180 - 90
     assert abs(angle_err) < 2

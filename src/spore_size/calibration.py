@@ -95,46 +95,120 @@ def _fit_ruler_line(edges_in_region: Image) -> dict[str, Any]:
     return {"angle_deg": angle_deg, "center": tuple(mean), "n_ticks": int(inlier.sum())}
 
 
+def _regular_runs(peaks: NDArray[np.intp], px_per_tick: float, tol: float = 0.2) -> list[slice]:
+    """Return slices of peaks covering each run of evenly spaced ticks."""
+    ok = np.abs(np.diff(peaks) / px_per_tick - 1) < tol
+    runs = []
+    start = None
+    for i, o in enumerate(ok):
+        if o and start is None:
+            start = i
+        elif not o and start is not None:
+            runs.append(slice(start, i + 1))
+            start = None
+    if start is not None:
+        runs.append(slice(start, len(peaks)))
+    return runs
+
+
 def _longest_regular_run(peaks: NDArray[np.intp], px_per_tick: float, tol: float = 0.2) -> int:
     """Longest run of consecutive tick gaps within tol of the expected spacing."""
-    ok = np.abs(np.diff(peaks) / px_per_tick - 1) < tol
-    best = run = 0
-    for o in ok:
-        run = run + 1 if o else 0
-        best = max(best, run)
-    return best
+    runs = _regular_runs(peaks, px_per_tick, tol)
+    return max((r.stop - r.start - 1 for r in runs), default=0)
 
 
-def _measure_spacing(
-    gray: Image, center: Point, angle_deg: float, strip_len: int = 1600, strip_half_h: int = 25
-) -> tuple[float, int, NDArray[np.float32], NDArray[np.intp]]:
-    """Measure the tick spacing along the ruler line.
+def _fit_tick_spacing(peaks: NDArray[np.intp], px_per_tick: float) -> float:
+    """Refine the tick spacing to sub-pixel precision.
 
-    Rotates the image so the ruler is horizontal, takes the darkest value
-    across a strip along it, and finds the ticks as peaks in that profile.
-    Returns (px_per_tick, number of ticks, strip, tick positions). Raises
-    RuntimeError if too few ticks are found.
+    Tick positions are whole pixels, so the median gap is a whole number and
+    can be off by up to half a pixel per tick (several percent). Instead, fit
+    a straight line through the positions of the longest run of evenly spaced
+    ticks against their tick number; its slope is the spacing.
     """
-    h, w = gray.shape
-    M = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
-    rot = cv2.warpAffine(gray, M, (w, h))
-    cx, cy = center
-    x0, x1 = int(cx - strip_len / 2), int(cx + strip_len / 2)
-    y0, y1 = int(cy - strip_half_h), int(cy + strip_half_h)
-    x0, y0 = max(0, x0), max(0, y0)
-    x1, y1 = min(w, x1), min(h, y1)
-    strip = rot[y0:y1, x0:x1].astype(np.float32)
+    runs = _regular_runs(peaks, px_per_tick)
+    if not runs:
+        return px_per_tick
+    longest = max(runs, key=lambda r: r.stop - r.start)
+    pos = peaks[longest].astype(float)
+    if len(pos) < 3:
+        return px_per_tick
+    index = np.arange(len(pos))
+    slope = np.polyfit(index, pos, 1)[0]
+    return float(slope)
 
+
+def _strip_ticks(
+    rot: Image, cx: float, cy: float, strip_len: int, strip_half_h: int
+) -> tuple[float, NDArray[np.float32], NDArray[np.intp]] | None:
+    """Find ticks in one horizontal strip of the rotated image.
+
+    Returns (px_per_tick, strip, tick positions), or None if too few ticks.
+    """
+    h, w = rot.shape[:2]
+    x0, x1 = max(0, int(cx - strip_len / 2)), min(w, int(cx + strip_len / 2))
+    y0, y1 = max(0, int(cy - strip_half_h)), min(h, int(cy + strip_half_h))
+    if y1 <= y0 or x1 <= x0:
+        return None
+    strip = rot[y0:y1, x0:x1].astype(np.float32)
     profile = strip.min(axis=0)
     inv_s = gaussian_filter1d(255 - profile, sigma=1.5)
     peaks, _ = find_peaks(inv_s, distance=8, prominence=10)
     diffs = np.diff(peaks)
     if len(diffs) < 5:
-        raise RuntimeError("Not enough ticks found along the fitted ruler line")
+        return None
     med = np.median(diffs)
     good = diffs[(diffs > med * 0.6) & (diffs < med * 1.4)]
-    px_per_tick = float(np.median(good))
-    return px_per_tick, len(peaks), strip, peaks
+    if len(good) == 0:
+        return None
+    return float(np.median(good)), strip, peaks
+
+
+def _measure_spacing(
+    gray: Image,
+    center: Point,
+    angle_deg: float,
+    strip_len: int = 1600,
+    strip_half_h: int = 25,
+    search_px: int = 60,
+    search_step: int = 4,
+) -> tuple[float, int, NDArray[np.float32], NDArray[np.intp], Point]:
+    """Measure the tick spacing along the ruler line.
+
+    Rotates the image so the ruler is horizontal, takes the darkest value
+    across a strip along it, and finds the ticks as peaks in that profile.
+    The fitted line can sit beside the ticks (the printed numbers pull it
+    sideways), so strips up to search_px either side are tried and the one
+    with the longest run of evenly spaced ticks is used. The spacing is then
+    refined to sub-pixel precision from that run (see _fit_tick_spacing).
+
+    Returns (px_per_tick, number of ticks, strip, tick positions, centre of
+    the chosen strip in image coordinates). Raises RuntimeError if too few
+    ticks are found.
+    """
+    h, w = gray.shape[:2]
+    M = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
+    rot = cv2.warpAffine(gray, M, (w, h))
+    cx, cy = center
+
+    best = None
+    best_score = (-1, -1)
+    for dy in range(-search_px, search_px + 1, search_step):
+        found = _strip_ticks(rot, cx, cy + dy, strip_len, strip_half_h)
+        if found is None:
+            continue
+        px_per_tick, strip, peaks = found
+        score = (_longest_regular_run(peaks, px_per_tick), len(peaks))
+        if score > best_score:
+            best, best_score = (px_per_tick, strip, peaks, dy), score
+    if best is None:
+        raise RuntimeError("Not enough ticks found along the fitted ruler line")
+
+    px_per_tick, strip, peaks, dy = best
+    px_per_tick = _fit_tick_spacing(peaks, px_per_tick)
+    # centre of the chosen strip, mapped back from the rotated image
+    m_inv = cv2.invertAffineTransform(M)
+    sx, sy = m_inv @ np.array([cx, cy + dy, 1.0])
+    return px_per_tick, len(peaks), strip, peaks, (float(sx), float(sy))
 
 
 def calibrate_image(
@@ -162,7 +236,7 @@ def calibrate_image(
         region_mask = _ruler_region_mask(edges)
         edges_region = cv2.bitwise_and(edges, edges, mask=region_mask)
         line = _fit_ruler_line(edges_region)
-        px_per_tick, n_peaks, strip, peaks = _measure_spacing(
+        px_per_tick, n_peaks, strip, peaks, ruler_center = _measure_spacing(
             gray, line["center"], line["angle_deg"]
         )
     except RuntimeError as e:
@@ -173,7 +247,7 @@ def calibrate_image(
 
     if debug_prefix:
         overlay = img_bgr.copy()
-        cx, cy = line["center"]
+        cx, cy = ruler_center
         ang = np.radians(line["angle_deg"])
         d = np.array([np.cos(ang), np.sin(ang)])
         p0 = (int(cx - d[0] * 700), int(cy - d[1] * 700))
@@ -204,7 +278,7 @@ def calibrate_image(
         "px_per_tick": px_per_tick,
         "microns_per_px": microns_per_px,
         "angle_deg": line["angle_deg"],
-        "center": line["center"],
+        "center": ruler_center,
         "n_peaks": n_peaks,
         "regular_run": regular_run,
     }

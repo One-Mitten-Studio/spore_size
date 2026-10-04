@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 SAMPLE = Path(__file__).parent / "data" / "sample_spores.jpg"
-SAMPLE_PX_PER_TICK = 12.0
+SAMPLE_PX_PER_TICK = 12.08  # sub-pixel fit over the ruler ticks
 SAMPLE_RULER_ANGLE_DEG = 62.0  # modulo 180
 
 SIZE = 1400
