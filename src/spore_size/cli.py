@@ -12,6 +12,7 @@ directory and all spores), all_spores_combined.csv (every measured spore, with t
 given on the command line) and, for each directory the images came from,
 <dir>_spores_combined.csv with just that directory's spores.
 """
+
 import argparse
 import csv
 import os
@@ -27,29 +28,48 @@ def build_parser():
     ap = argparse.ArgumentParser(
         prog="spore-size",
         description="Measure spore length x width (um) from micrographs with an "
-                    "ocular-micrometer scale bar.")
+        "ocular-micrometer scale bar.",
+    )
     ap.add_argument("images", nargs="+", help="image files to process")
-    ap.add_argument("--out-dir", default="./spore_results",
-                    help="directory for CSVs and overlays (default: %(default)s)")
-    ap.add_argument("--um-per-tick", type=float, default=1.0,
-                    help="microns per scale-bar tick (default: %(default)s)")
+    ap.add_argument(
+        "--out-dir",
+        default="./spore_results",
+        help="directory for CSVs and overlays (default: %(default)s)",
+    )
+    ap.add_argument(
+        "--um-per-tick",
+        type=float,
+        default=1.0,
+        help="microns per scale-bar tick (default: %(default)s)",
+    )
     ap.add_argument("--min-length-um", type=float, default=3.0)
     ap.add_argument("--max-length-um", type=float, default=25.0)
     ap.add_argument("--min-width-um", type=float, default=1.5)
     ap.add_argument("--max-width-um", type=float, default=18.0)
-    ap.add_argument("--include-touching", action="store_true",
-                    help="also measure spores touching another spore (split apart); "
-                         "by default only isolated spores are measured")
-    ap.add_argument("--max-clutter", type=float, default=0.28,
-                    help="skip photos where more than this fraction of the view is "
-                         "neither background nor spores, e.g. tissue (default: %(default)s)")
-    ap.add_argument("--sys-error-um", type=float, default=DEFAULT_SYS_ERROR_UM,
-                    help="systematic error of a length measurement in um, e.g. the "
-                         "light microscope's resolution limit (default: %(default)s)")
-    ap.add_argument("--no-plots", action="store_true",
-                    help="skip the length vs width plots")
-    ap.add_argument("--no-debug", action="store_true",
-                    help="skip writing the calibration diagnostic images")
+    ap.add_argument(
+        "--include-touching",
+        action="store_true",
+        help="also measure spores touching another spore (split apart); "
+        "by default only isolated spores are measured",
+    )
+    ap.add_argument(
+        "--max-clutter",
+        type=float,
+        default=0.28,
+        help="skip photos where more than this fraction of the view is "
+        "neither background nor spores, e.g. tissue (default: %(default)s)",
+    )
+    ap.add_argument(
+        "--sys-error-um",
+        type=float,
+        default=DEFAULT_SYS_ERROR_UM,
+        help="systematic error of a length measurement in um, e.g. the "
+        "light microscope's resolution limit (default: %(default)s)",
+    )
+    ap.add_argument("--no-plots", action="store_true", help="skip the length vs width plots")
+    ap.add_argument(
+        "--no-debug", action="store_true", help="skip writing the calibration diagnostic images"
+    )
     return ap
 
 
@@ -58,8 +78,9 @@ def write_combined_csv(rows, csv_path):
         w = csv.writer(f)
         w.writerow(["image", "length_um", "width_um", "Q_ratio"])
         for r in rows:
-            w.writerow([r["image"], f"{r['length_um']:.2f}", f"{r['width_um']:.2f}",
-                        f"{r['Q_ratio']:.2f}"])
+            w.writerow(
+                [r["image"], f"{r['length_um']:.2f}", f"{r['width_um']:.2f}", f"{r['Q_ratio']:.2f}"]
+            )
 
 
 def directory_labels(dirs):
@@ -68,6 +89,7 @@ def directory_labels(dirs):
     component (e.g. "inat255552721"), or the whole path joined with "_" when
     two directories share a last component.
     """
+
     def last(d):
         return os.path.basename(os.path.normpath(d))
 
@@ -89,11 +111,17 @@ def main(argv=None):
     for path in args.images:
         try:
             summary, kept = process_image(
-                path, args.out_dir, um_per_tick=args.um_per_tick,
-                min_length_um=args.min_length_um, max_length_um=args.max_length_um,
-                min_width_um=args.min_width_um, max_width_um=args.max_width_um,
-                include_touching=args.include_touching, max_clutter=args.max_clutter,
-                save_debug=not args.no_debug)
+                path,
+                args.out_dir,
+                um_per_tick=args.um_per_tick,
+                min_length_um=args.min_length_um,
+                max_length_um=args.max_length_um,
+                min_width_um=args.min_width_um,
+                max_width_um=args.max_width_um,
+                include_touching=args.include_touching,
+                max_clutter=args.max_clutter,
+                save_debug=not args.no_debug,
+            )
         except PhotoRejected as e:
             print(f"[SKIPPED] {os.path.basename(path)}: {e}", file=sys.stderr)
             continue
@@ -102,10 +130,12 @@ def main(argv=None):
             continue
         n_ok += 1
         processed.append(path)
-        print(f"{os.path.basename(path)}: n={summary['n']}  "
-              f"L={summary['length_mean']:.2f}±{summary['length_sd']:.2f} um  "
-              f"W={summary['width_mean']:.2f}±{summary['width_sd']:.2f} um  "
-              f"Q={summary['Q_mean']:.2f}  ({summary['um_per_px']:.4f} um/px)")
+        print(
+            f"{os.path.basename(path)}: n={summary['n']}  "
+            f"L={summary['length_mean']:.2f}±{summary['length_sd']:.2f} um  "
+            f"W={summary['width_mean']:.2f}±{summary['width_sd']:.2f} um  "
+            f"Q={summary['Q_mean']:.2f}  ({summary['um_per_px']:.4f} um/px)"
+        )
         for s in kept:
             all_rows.append({"image": path, **s})
 
@@ -128,9 +158,11 @@ def main(argv=None):
         summary_path = os.path.join(args.out_dir, "spore_summary.csv")
         write_summary_csv(stats, summary_path)
         print(f"\nSummary: {summary_path}")
-        print(f"SD = spread of individual spores; stat = SEM = SD/sqrt(n); "
-              f"sys = {args.sys_error_um} um measurement limit (propagated for Q); "
-              f"total = sqrt(stat^2 + sys^2)\n")
+        print(
+            f"SD = spread of individual spores; stat = SEM = SD/sqrt(n); "
+            f"sys = {args.sys_error_um} um measurement limit (propagated for Q); "
+            f"total = sqrt(stat^2 + sys^2)\n"
+        )
         print(format_table(stats))
         print("\nFor publication:")
         for r in stats:
@@ -139,8 +171,9 @@ def main(argv=None):
                 print(f"  {name}: {r['publication']}")
 
         if all_rows and not args.no_plots:
-            plot_paths = write_plots(all_rows, stats, args.out_dir, dir_labels,
-                                     radius_um=args.sys_error_um)
+            plot_paths = write_plots(
+                all_rows, stats, args.out_dir, dir_labels, radius_um=args.sys_error_um
+            )
             print(f"\nPlots: {len(plot_paths)} written to {args.out_dir} (*_spore_plot.png)")
 
     return 0 if n_ok else 1

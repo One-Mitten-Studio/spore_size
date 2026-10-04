@@ -25,6 +25,7 @@ measuring bad ones). Compared with the photo's own background it must be:
 By default spores touching another spore, or near the edge of the field of
 view, are also left out.
 """
+
 import cv2
 import numpy as np
 
@@ -73,7 +74,8 @@ def _split_by_seeds(comp, seeds):
         return [comp] if n_seeds == 2 else []
     # nearest seed for every pixel; labels refer to the zero pixels' components
     _, nearest = cv2.distanceTransformWithLabels(
-        cv2.bitwise_not(seeds), cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_CCOMP)
+        cv2.bitwise_not(seeds), cv2.DIST_L2, 5, labelType=cv2.DIST_LABEL_CCOMP
+    )
     regions = []
     for s in range(1, n_seeds):
         lab = nearest[seed_labels == s][0]
@@ -87,14 +89,14 @@ def _split_by_seeds(comp, seeds):
     return regions
 
 
-def _measure_region(region, offset, min_area_px, max_area_px, min_solidity,
-                    min_axis_ratio, max_axis_ratio):
+def _measure_region(
+    region, offset, min_area_px, max_area_px, min_solidity, min_axis_ratio, max_axis_ratio
+):
     """Fit an ellipse to one candidate region; None if it fails a quality check."""
     area = int(np.count_nonzero(region))
     if area < min_area_px or area > max_area_px:
         return None
-    cnts, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE,
-                               offset=offset)
+    cnts, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE, offset=offset)
     if not cnts:
         return None
     cnt = max(cnts, key=cv2.contourArea)
@@ -138,7 +140,7 @@ def _interior_hsv_median(hsv, ellipse, scale=0.6):
     (cx, cy), (a, b), angle = ellipse
     r = int(max(a, b) / 2) + 2
     x0, y0 = max(int(cx) - r, 0), max(int(cy) - r, 0)
-    crop = hsv[y0:int(cy) + r + 1, x0:int(cx) + r + 1]
+    crop = hsv[y0 : int(cy) + r + 1, x0 : int(cx) + r + 1]
     m = np.zeros(crop.shape[:2], np.uint8)
     cv2.ellipse(m, ((cx - x0, cy - y0), (a * scale, b * scale), angle), 255, -1)
     return np.median(crop[m > 0], axis=0)
@@ -168,13 +170,24 @@ def _wall_metrics(gray, grad_mag, ellipse, n_angles=72, band=8):
     return float(sharpness), float(wall_level)
 
 
-def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
-                   min_area_px=150, max_area_px=20000,
-                   min_solidity=0.85, min_axis_ratio=1.05, max_axis_ratio=3.0,
-                   min_sat_above_bg=25, min_rel_brightness=0.75,
-                   min_sharpness=0.9, max_wall_level=0.6,
-                   include_touching=False, fov_margin=0.95,
-                   debug_prefix=None):
+def segment_spores(
+    img_bgr,
+    interior_hue=(8, 30),
+    interior_sat=35,
+    rim_sat=60,
+    min_area_px=150,
+    max_area_px=20000,
+    min_solidity=0.85,
+    min_axis_ratio=1.05,
+    max_axis_ratio=3.0,
+    min_sat_above_bg=25,
+    min_rel_brightness=0.75,
+    min_sharpness=0.9,
+    max_wall_level=0.6,
+    include_touching=False,
+    fov_margin=0.95,
+    debug_prefix=None,
+):
     """
     Returns a list of dicts, one per detected spore, each with the fitted
     ellipse (center, length/width in px, angle) and quality metrics.
@@ -190,8 +203,9 @@ def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
     fov_center, fov_r = find_fov_circle(gray)
     inner_fov = fov_mask(gray.shape, fov_center, fov_r, shrink=0.97)
     bg_gray = float(np.median(gray[inner_fov > 0]))
-    grad_mag = cv2.magnitude(cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3),
-                             cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3))
+    grad_mag = cv2.magnitude(
+        cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3), cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    )
 
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     # spores cover a small fraction of the field, so the median is background
@@ -207,16 +221,23 @@ def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
         x, y, bw, bh, area = stats[i]
         if area < min_area_px:
             continue
-        comp = (labels[y:y + bh, x:x + bw] == i).astype(np.uint8) * 255
-        if np.count_nonzero(interior[y:y + bh, x:x + bw] & comp) < min_interior_px:
+        comp = (labels[y : y + bh, x : x + bw] == i).astype(np.uint8) * 255
+        if np.count_nonzero(interior[y : y + bh, x : x + bw] & comp) < min_interior_px:
             continue  # no brown interior: debris or a bubble fragment
         regions = _split_by_seeds(comp, _shape_seeds(comp))
         touching = len(regions) > 1
         if touching and not include_touching:
             continue
         for region in regions:
-            s = _measure_region(region, (int(x), int(y)), min_area_px, max_area_px,
-                                min_solidity, min_axis_ratio, max_axis_ratio)
+            s = _measure_region(
+                region,
+                (int(x), int(y)),
+                min_area_px,
+                max_area_px,
+                min_solidity,
+                min_axis_ratio,
+                max_axis_ratio,
+            )
             if s is None:
                 continue
             (cx, cy), r_out = s["center_px"], s["length_px"] / 2
@@ -230,8 +251,9 @@ def segment_spores(img_bgr, interior_hue=(8, 30), interior_sat=35, rim_sat=60,
             sharpness, wall_level = _wall_metrics(gray, grad_mag, s["ellipse"])
             if sharpness < min_sharpness * bg_gray or wall_level > max_wall_level * bg_gray:
                 continue  # soft or faint outline: out of focus, or a ghost/immature spore
-            s.update(touching=touching, sharpness=sharpness / bg_gray,
-                     wall_level=wall_level / bg_gray)
+            s.update(
+                touching=touching, sharpness=sharpness / bg_gray, wall_level=wall_level / bg_gray
+            )
             spores.append(s)
 
     if debug_prefix:

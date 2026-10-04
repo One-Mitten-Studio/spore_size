@@ -8,6 +8,7 @@ End-to-end spore sizing for a single micrograph:
      size range, or oddly sized compared with the rest of the photo
   5. write an annotated overlay + a CSV of measurements
 """
+
 import csv
 import os
 
@@ -68,8 +69,14 @@ def drop_size_outliers(spores, k=3.0, min_rel_spread=0.04, min_n=5):
     return [s for s, ok in zip(spores, keep) if ok]
 
 
-def filter_spores(raw_spores, um_per_px, min_length_um=3.0, max_length_um=25.0,
-                  min_width_um=1.5, max_width_um=18.0):
+def filter_spores(
+    raw_spores,
+    um_per_px,
+    min_length_um=3.0,
+    max_length_um=25.0,
+    min_width_um=1.5,
+    max_width_um=18.0,
+):
     """Convert spores to microns and keep only those within the size limits."""
     kept = []
     for s in raw_spores:
@@ -79,12 +86,14 @@ def filter_spores(raw_spores, um_per_px, min_length_um=3.0, max_length_um=25.0,
             continue
         if not (min_width_um <= width_um <= max_width_um):
             continue
-        kept.append({
-            **s,
-            "length_um": length_um,
-            "width_um": width_um,
-            "Q_ratio": length_um / width_um if width_um > 0 else np.nan,
-        })
+        kept.append(
+            {
+                **s,
+                "length_um": length_um,
+                "width_um": width_um,
+                "Q_ratio": length_um / width_um if width_um > 0 else np.nan,
+            }
+        )
     return kept
 
 
@@ -110,13 +119,33 @@ def summarize(kept, um_per_px):
 def write_measurements_csv(kept, csv_path):
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["spore_id", "length_um", "width_um", "Q_ratio",
-                    "length_px", "width_px", "center_x_px", "center_y_px", "solidity"])
+        w.writerow(
+            [
+                "spore_id",
+                "length_um",
+                "width_um",
+                "Q_ratio",
+                "length_px",
+                "width_px",
+                "center_x_px",
+                "center_y_px",
+                "solidity",
+            ]
+        )
         for i, s in enumerate(kept, 1):
-            w.writerow([i, f"{s['length_um']:.2f}", f"{s['width_um']:.2f}",
-                        f"{s['Q_ratio']:.2f}", f"{s['length_px']:.1f}", f"{s['width_px']:.1f}",
-                        f"{s['center_px'][0]:.0f}", f"{s['center_px'][1]:.0f}",
-                        f"{s['solidity']:.2f}"])
+            w.writerow(
+                [
+                    i,
+                    f"{s['length_um']:.2f}",
+                    f"{s['width_um']:.2f}",
+                    f"{s['Q_ratio']:.2f}",
+                    f"{s['length_px']:.1f}",
+                    f"{s['width_px']:.1f}",
+                    f"{s['center_px'][0]:.0f}",
+                    f"{s['center_px'][1]:.0f}",
+                    f"{s['solidity']:.2f}",
+                ]
+            )
 
 
 def draw_overlay(img_bgr, kept, um_per_px):
@@ -124,16 +153,30 @@ def draw_overlay(img_bgr, kept, um_per_px):
     overlay = img_bgr.copy()
     for s in kept:
         cv2.ellipse(overlay, s["ellipse"], (0, 0, 255), 2)
-    cv2.putText(overlay, f"n={len(kept)}  calib={um_per_px:.4f} um/px",
-                (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 140, 255), 3)
+    cv2.putText(
+        overlay,
+        f"n={len(kept)}  calib={um_per_px:.4f} um/px",
+        (30, 60),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        1.4,
+        (0, 140, 255),
+        3,
+    )
     return overlay
 
 
-def process_image(path, out_dir, um_per_tick=1.0,
-                  min_length_um=3.0, max_length_um=25.0,
-                  min_width_um=1.5, max_width_um=18.0,
-                  include_touching=False, max_clutter=0.28,
-                  save_debug=True):
+def process_image(
+    path,
+    out_dir,
+    um_per_tick=1.0,
+    min_length_um=3.0,
+    max_length_um=25.0,
+    min_width_um=1.5,
+    max_width_um=18.0,
+    include_touching=False,
+    max_clutter=0.28,
+    save_debug=True,
+):
     """
     Calibrate, segment and measure one image, writing its CSV and overlay
     into out_dir. Returns (summary_dict, kept_spores).
@@ -148,17 +191,24 @@ def process_image(path, out_dir, um_per_tick=1.0,
     check_micrograph(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
     clutter = clutter_fraction(img)
     if clutter > max_clutter:
-        raise PhotoRejected(f"cluttered field ({clutter:.0%} of view is neither background "
-                            f"nor spores; tissue rather than a spore mount?)")
+        raise PhotoRejected(
+            f"cluttered field ({clutter:.0%} of view is neither background "
+            f"nor spores; tissue rather than a spore mount?)"
+        )
 
     calib = calibrate_image(img, microns_per_tick=um_per_tick, debug_prefix=debug_prefix)
     um_per_px = calib["microns_per_px"]
 
     raw_spores = segment_spores(img, include_touching=include_touching)
     raw_spores = [s for s in raw_spores if not near_ruler(s, calib)]
-    kept = filter_spores(raw_spores, um_per_px,
-                         min_length_um=min_length_um, max_length_um=max_length_um,
-                         min_width_um=min_width_um, max_width_um=max_width_um)
+    kept = filter_spores(
+        raw_spores,
+        um_per_px,
+        min_length_um=min_length_um,
+        max_length_um=max_length_um,
+        min_width_um=min_width_um,
+        max_width_um=max_width_um,
+    )
     kept = drop_size_outliers(kept)
 
     csv_path = os.path.join(out_dir, f"{stem}_spore_measurements.csv")

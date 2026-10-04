@@ -17,6 +17,7 @@ Output: pixels-per-scale-unit for the image. Multiply by microns-per-unit
 (1.0 for a standard 0-100 micron ocular scale -- ADJUST if your scale bar
 uses a different convention) to get the microns-per-pixel calibration.
 """
+
 import cv2
 import numpy as np
 from scipy.signal import find_peaks
@@ -52,8 +53,9 @@ def _ruler_region_mask(edges_achromatic):
 
 
 def _fit_ruler_line(edges_in_region):
-    lines = cv2.HoughLinesP(edges_in_region, 1, np.pi / 360, threshold=15,
-                             minLineLength=8, maxLineGap=2)
+    lines = cv2.HoughLinesP(
+        edges_in_region, 1, np.pi / 360, threshold=15, minLineLength=8, maxLineGap=2
+    )
     if lines is None or len(lines) < 8:
         raise RuntimeError("Not enough tick segments detected to fit the ruler line")
     segs = lines.reshape(-1, 4)  # OpenCV 4 returns (N, 1, 4), OpenCV 5 returns (N, 4)
@@ -129,7 +131,8 @@ def calibrate_image(img_bgr, microns_per_tick=1.0, min_regular_ticks=8, debug_pr
         edges_region = cv2.bitwise_and(edges, edges, mask=region_mask)
         line = _fit_ruler_line(edges_region)
         px_per_tick, n_peaks, strip, peaks = _measure_spacing(
-            gray, line["center"], line["angle_deg"])
+            gray, line["center"], line["angle_deg"]
+        )
     except RuntimeError as e:
         raise PhotoRejected(f"scale bar not found ({e})") from e
     regular_run = _longest_regular_run(peaks, px_per_tick)
@@ -144,8 +147,15 @@ def calibrate_image(img_bgr, microns_per_tick=1.0, min_regular_ticks=8, debug_pr
         p0 = (int(cx - d[0] * 700), int(cy - d[1] * 700))
         p1 = (int(cx + d[0] * 700), int(cy + d[1] * 700))
         cv2.line(overlay, p0, p1, (0, 255, 0), 3)
-        cv2.putText(overlay, f"{px_per_tick:.2f} px/unit ({microns_per_px:.4f} um/px)",
-                    (int(cx) - 250, int(cy) - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 140, 255), 3)
+        cv2.putText(
+            overlay,
+            f"{px_per_tick:.2f} px/unit ({microns_per_px:.4f} um/px)",
+            (int(cx) - 250, int(cy) - 40),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            1.1,
+            (0, 140, 255),
+            3,
+        )
         cv2.imwrite(f"{debug_prefix}_calib_overlay.png", overlay)
         dbg_strip = cv2.cvtColor(strip.astype(np.uint8), cv2.COLOR_GRAY2BGR)
         for p in peaks:
@@ -153,8 +163,10 @@ def calibrate_image(img_bgr, microns_per_tick=1.0, min_regular_ticks=8, debug_pr
         cv2.imwrite(f"{debug_prefix}_calib_strip.png", dbg_strip)
 
     if regular_run < min_regular_ticks:
-        raise PhotoRejected(f"scale bar not found reliably (only {regular_run} evenly "
-                            f"spaced ticks in a row; need {min_regular_ticks})")
+        raise PhotoRejected(
+            f"scale bar not found reliably (only {regular_run} evenly "
+            f"spaced ticks in a row; need {min_regular_ticks})"
+        )
 
     return {
         "px_per_tick": px_per_tick,
@@ -164,4 +176,3 @@ def calibrate_image(img_bgr, microns_per_tick=1.0, min_regular_ticks=8, debug_pr
         "n_peaks": n_peaks,
         "regular_run": regular_run,
     }
-

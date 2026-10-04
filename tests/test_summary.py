@@ -5,15 +5,17 @@ from spore_size.summary import describe, format_table, q_systematic, summary_row
 
 
 def _rows(image, lengths, widths):
-    return [{"image": image, "length_um": l, "width_um": w, "Q_ratio": l / w}
-            for l, w in zip(lengths, widths)]
+    return [
+        {"image": image, "length_um": l, "width_um": w, "Q_ratio": l / w}
+        for l, w in zip(lengths, widths)
+    ]
 
 
 def test_describe_uses_sample_sd_and_sem():
     d = describe([6.0, 7.0, 8.0])
     assert d["n"] == 3
     assert d["mean"] == pytest.approx(7.0)
-    assert d["sd"] == pytest.approx(1.0)              # n-1 denominator
+    assert d["sd"] == pytest.approx(1.0)  # n-1 denominator
     assert d["sem"] == pytest.approx(1.0 / np.sqrt(3))  # SD / sqrt(n)
 
 
@@ -23,12 +25,21 @@ def test_describe_single_value_has_no_spread():
 
 
 def test_summary_groups_images_directories_and_all():
-    rows = (_rows("a/p1.jpg", [6, 7], [4, 5]) + _rows("a/p2.jpg", [8], [5])
-            + _rows("b/p3.jpg", [7, 7, 7], [4, 4, 4]))
+    rows = (
+        _rows("a/p1.jpg", [6, 7], [4, 5])
+        + _rows("a/p2.jpg", [8], [5])
+        + _rows("b/p3.jpg", [7, 7, 7], [4, 4, 4])
+    )
     out = summary_rows(rows, images=["a/p1.jpg", "a/p2.jpg", "a/empty.jpg", "b/p3.jpg"])
     assert [(r["level"], r["name"]) for r in out] == [
-        ("image", "a/p1.jpg"), ("image", "a/p2.jpg"), ("image", "a/empty.jpg"),
-        ("directory", "a"), ("image", "b/p3.jpg"), ("directory", "b"), ("all", "all")]
+        ("image", "a/p1.jpg"),
+        ("image", "a/p2.jpg"),
+        ("image", "a/empty.jpg"),
+        ("directory", "a"),
+        ("image", "b/p3.jpg"),
+        ("directory", "b"),
+        ("all", "all"),
+    ]
     by_name = {r["name"]: r for r in out}
     assert by_name["a"]["n_spores"] == 3 and by_name["a"]["n_images"] == 2
     assert by_name["a"]["length_mean"] == pytest.approx(7.0)  # pooled spores
@@ -61,7 +72,8 @@ def test_publication_text():
     rows = _rows("p1.jpg", [6.0, 7.0], [4.0, 5.0])
     r = summary_rows(rows, sys_error_um=0.1)[-1]
     l_err = np.hypot(np.std([6.0, 7.0], ddof=1) / np.sqrt(2), 0.1)
-    assert r["publication"] == (f"6.50 ± 0.71 µm (err: {l_err:.2f}) "
-                                f"by 4.50 ± 0.71 µm (err: {l_err:.2f})")
+    assert r["publication"] == (
+        f"6.50 ± 0.71 µm (err: {l_err:.2f}) " f"by 4.50 ± 0.71 µm (err: {l_err:.2f})"
+    )
     empty = summary_rows([], images=["none.jpg"])[0]
     assert empty["publication"] == ""

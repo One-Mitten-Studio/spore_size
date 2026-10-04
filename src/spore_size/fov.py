@@ -1,4 +1,5 @@
 """Detection of the circular microscope field of view (FOV)."""
+
 import cv2
 import numpy as np
 

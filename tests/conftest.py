@@ -8,6 +8,7 @@
   clear bubbles, for exercising
   segmentation.
 """
+
 from pathlib import Path
 
 import cv2
@@ -33,11 +34,11 @@ SPORES = [
 # one of them touching the first spore
 BUBBLES = [((515, 400), 40), ((1000, 700), 45)]
 
-SPORE_WALL_BGR = (60, 40, 150)     # dark, strongly saturated red-brown
-SPORE_INNER_BGR = (60, 130, 190)   # yellow-brown
-BUBBLE_RIM_BGR = (160, 150, 185)   # weakly saturated pink-red (S~48)
+SPORE_WALL_BGR = (60, 40, 150)  # dark, strongly saturated red-brown
+SPORE_INNER_BGR = (60, 130, 190)  # yellow-brown
+BUBBLE_RIM_BGR = (160, 150, 185)  # weakly saturated pink-red (S~48)
 BUBBLE_INNER_BGR = (170, 190, 160)  # pale green
-OIL_DROP_BGR = (175, 195, 170)     # pale, nearly colourless
+OIL_DROP_BGR = (175, 195, 170)  # pale, nearly colourless
 
 
 def make_image():

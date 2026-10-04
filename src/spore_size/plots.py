@@ -13,6 +13,7 @@ A dotted ellipse centred on the mean (length, width) has semi-axes equal to
 the length and width SDs (mean ± 1 SD). The all-spores plot also draws one
 per directory, in the directory's colour.
 """
+
 import os
 
 import matplotlib
@@ -26,8 +27,7 @@ import matplotlib.patheffects as pe  # noqa: E402
 import numpy as np  # noqa: E402
 
 # fixed-order categorical palette (colour follows the directory, not its rank)
-PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
-           "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 FILL_ALPHA = 0.35
 TEXT = "#222222"
 MUTED = "#666666"
@@ -49,11 +49,28 @@ def sd_ellipse(ax, rows, colour, linewidth):
     ws = np.array([r["width_um"] for r in rows])
     centre = (ls.mean(), ws.mean())
     halo = [pe.withStroke(linewidth=linewidth + 2.5, foreground="white")]  # readable over circles
-    ax.add_patch(Ellipse(centre, 2 * ls.std(ddof=1), 2 * ws.std(ddof=1), fill=False,
-                         edgecolor=colour, linestyle=":", linewidth=linewidth, zorder=3,
-                         path_effects=halo))
-    ax.plot(*centre, marker="+", color=colour, markersize=9, markeredgewidth=linewidth,
-            zorder=4, path_effects=halo)
+    ax.add_patch(
+        Ellipse(
+            centre,
+            2 * ls.std(ddof=1),
+            2 * ws.std(ddof=1),
+            fill=False,
+            edgecolor=colour,
+            linestyle=":",
+            linewidth=linewidth,
+            zorder=3,
+            path_effects=halo,
+        )
+    )
+    ax.plot(
+        *centre,
+        marker="+",
+        color=colour,
+        markersize=9,
+        markeredgewidth=linewidth,
+        zorder=4,
+        path_effects=halo,
+    )
 
 
 def plot_spores(groups, path, title, subtitle, limits, radius_um):
@@ -64,8 +81,11 @@ def plot_spores(groups, path, title, subtitle, limits, radius_um):
     fig, ax = plt.subplots(figsize=(7, 5.5), dpi=150)
     for _, colour, rows in groups:
         circles = [Circle((r["length_um"], r["width_um"]), radius_um) for r in rows]
-        ax.add_collection(PatchCollection(circles, facecolor=_rgba(colour, FILL_ALPHA),
-                                          edgecolor="black", linewidth=0.4))
+        ax.add_collection(
+            PatchCollection(
+                circles, facecolor=_rgba(colour, FILL_ALPHA), edgecolor="black", linewidth=0.4
+            )
+        )
     if len(groups) > 1:
         for _, colour, rows in groups:
             sd_ellipse(ax, rows, colour, linewidth=1.8)
@@ -85,23 +105,56 @@ def plot_spores(groups, path, title, subtitle, limits, radius_um):
     ax.set_title(f"{title}\n", loc="left", color=TEXT, fontsize=11, fontweight="bold")
     ax.text(0, 1.02, subtitle, transform=ax.transAxes, color=MUTED, fontsize=8.5)
     if len(groups) > 1:
-        handles = [Line2D([], [], marker="o", linestyle=":", markersize=8, color=c,
-                          markerfacecolor=_rgba(c, FILL_ALPHA), markeredgecolor="black",
-                          markeredgewidth=0.4, label=f"{label} (n={len(rows)})")
-                   for label, c, rows in groups]
-        handles.append(Line2D([], [], linestyle=":", color="black", linewidth=1.4,
-                              marker="+", markersize=8, label="all spores"))
-        ax.legend(handles=handles, frameon=False, fontsize=8, labelcolor=TEXT,
-                  loc="upper left", bbox_to_anchor=(1.01, 1))
-    ax.text(1.0, -0.15, f"circle radius = systematic error ({radius_um:g} µm);  "
-            f"dotted ellipse = mean ± 1 SD",
-            transform=ax.transAxes, ha="right", color=MUTED, fontsize=7.5)
+        handles = [
+            Line2D(
+                [],
+                [],
+                marker="o",
+                linestyle=":",
+                markersize=8,
+                color=c,
+                markerfacecolor=_rgba(c, FILL_ALPHA),
+                markeredgecolor="black",
+                markeredgewidth=0.4,
+                label=f"{label} (n={len(rows)})",
+            )
+            for label, c, rows in groups
+        ]
+        handles.append(
+            Line2D(
+                [],
+                [],
+                linestyle=":",
+                color="black",
+                linewidth=1.4,
+                marker="+",
+                markersize=8,
+                label="all spores",
+            )
+        )
+        ax.legend(
+            handles=handles,
+            frameon=False,
+            fontsize=8,
+            labelcolor=TEXT,
+            loc="upper left",
+            bbox_to_anchor=(1.01, 1),
+        )
+    ax.text(
+        1.0,
+        -0.15,
+        f"circle radius = systematic error ({radius_um:g} µm);  " f"dotted ellipse = mean ± 1 SD",
+        transform=ax.transAxes,
+        ha="right",
+        color=MUTED,
+        fontsize=7.5,
+    )
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
 
 
 def _rgba(hex_colour, alpha):
-    r, g, b = (int(hex_colour[i:i + 2], 16) / 255 for i in (1, 3, 5))
+    r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
     return (r, g, b, alpha)
 
 
@@ -126,8 +179,14 @@ def write_plots(spore_rows, summary, out_dir, dir_labels, radius_um):
         rows = [r for r in spore_rows if r["image"] == img]
         stem = os.path.splitext(os.path.basename(img))[0]
         path = os.path.join(out_dir, f"{stem}_spore_plot.png")
-        plot_spores([(img, colour_of[os.path.dirname(img)], rows)], path, img,
-                    subtitle(pub[("image", img)]), limits, radius_um)
+        plot_spores(
+            [(img, colour_of[os.path.dirname(img)], rows)],
+            path,
+            img,
+            subtitle(pub[("image", img)]),
+            limits,
+            radius_um,
+        )
         paths.append(path)
 
     for d in dirs:
@@ -135,12 +194,15 @@ def write_plots(spore_rows, summary, out_dir, dir_labels, radius_um):
             continue
         rows = [r for r in spore_rows if os.path.dirname(r["image"]) == d]
         path = os.path.join(out_dir, f"{dir_labels[d]}_spore_plot.png")
-        plot_spores([(d, colour_of[d], rows)], path, d,
-                    subtitle(pub[("directory", d)]), limits, radius_um)
+        plot_spores(
+            [(d, colour_of[d], rows)], path, d, subtitle(pub[("directory", d)]), limits, radius_um
+        )
         paths.append(path)
 
-    groups = [(d or ".", colour_of[d], [r for r in spore_rows if os.path.dirname(r["image"]) == d])
-              for d in dirs]
+    groups = [
+        (d or ".", colour_of[d], [r for r in spore_rows if os.path.dirname(r["image"]) == d])
+        for d in dirs
+    ]
     path = os.path.join(out_dir, "all_spores_plot.png")
     plot_spores(groups, path, "All spores", subtitle(pub[("all", "all")]), limits, radius_um)
     paths.append(path)

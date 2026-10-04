@@ -164,6 +164,7 @@ saturation/brightness 0-255):
 ## Development
     pip install -e ".[dev]"
     pytest
+    black src tests        # code formatting (line length 100, set in pyproject.toml)
 
 ## License
 MIT -- see [LICENSE](LICENSE).

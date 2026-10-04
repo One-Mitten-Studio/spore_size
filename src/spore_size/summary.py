@@ -17,6 +17,7 @@ Each row also has a ready-to-paste publication text:
   "<length> ± <SD> µm (err: <total>) by <width> ± <SD> µm (err: <total>)".
 Directory and "all" rows pool the individual spores (not the image means).
 """
+
 import csv
 import os
 
@@ -53,6 +54,7 @@ def publication_text(r):
 
     def part(m):
         return f"{num(r[m + '_mean'])} ± {num(r[m + '_sd'])} µm (err: {num(r[m + '_total_err'])})"
+
     return f"{part('length')} by {part('width')}"
 
 
@@ -70,16 +72,21 @@ def summary_rows(spore_rows, images=None, sys_error_um=DEFAULT_SYS_ERROR_UM):
     has_dirs = any(dirs)
 
     def row(level, name, rows):
-        out = {"level": level, "name": name,
-               "n_images": len({r["image"] for r in rows}), "n_spores": len(rows)}
+        out = {
+            "level": level,
+            "name": name,
+            "n_images": len({r["image"] for r in rows}),
+            "n_spores": len(rows),
+        }
         for m, key in MEASURES:
             d = describe([r[key] for r in rows])
             out.update({f"{m}_mean": d["mean"], f"{m}_sem": d["sem"], f"{m}_sd": d["sd"]})
         has = bool(rows)
         out["length_sys"] = sys_error_um if has else np.nan
         out["width_sys"] = sys_error_um if has else np.nan
-        out["Q_sys"] = (q_systematic(out["length_mean"], out["width_mean"], sys_error_um)
-                        if has else np.nan)
+        out["Q_sys"] = (
+            q_systematic(out["length_mean"], out["width_mean"], sys_error_um) if has else np.nan
+        )
         for m, _ in MEASURES:  # total error: stat and sys in quadrature
             out[f"{m}_total_err"] = np.hypot(out[f"{m}_sem"], out[f"{m}_sys"])
         out["publication"] = publication_text(out)
@@ -90,8 +97,13 @@ def summary_rows(spore_rows, images=None, sys_error_um=DEFAULT_SYS_ERROR_UM):
         for img in (i for i in images if os.path.dirname(i) == d):
             result.append(row("image", img, [r for r in spore_rows if r["image"] == img]))
         if has_dirs:
-            result.append(row("directory", d or ".",
-                              [r for r in spore_rows if os.path.dirname(r["image"]) == d]))
+            result.append(
+                row(
+                    "directory",
+                    d or ".",
+                    [r for r in spore_rows if os.path.dirname(r["image"]) == d],
+                )
+            )
     result.append(row("all", "all", spore_rows))
     return result
 
@@ -104,12 +116,21 @@ def write_summary_csv(rows, csv_path):
         w = csv.DictWriter(f, fieldnames=fields)
         w.writeheader()
         for r in rows:
-            w.writerow({k: (("" if np.isnan(r[k]) else f"{r[k]:.3f}")
-                            if isinstance(r[k], float) else r[k]) for k in fields})
+            w.writerow(
+                {
+                    k: (
+                        ("" if np.isnan(r[k]) else f"{r[k]:.3f}")
+                        if isinstance(r[k], float)
+                        else r[k]
+                    )
+                    for k in fields
+                }
+            )
 
 
 def format_table(rows):
     """Plain-text version of the summary for the terminal."""
+
     def num(v, fmt):
         return "-" if np.isnan(v) else format(v, fmt)
 
@@ -119,8 +140,10 @@ def format_table(rows):
     lw, qw = 6, 7  # column widths for length/width and for Q
     sub = "".join(f"{h:>{lw}}" for h in ("mean", "SD", "stat", "sys", "total"))
     qsub = "".join(f"{h:>{qw}}" for h in ("mean", "SD", "stat", "sys", "total"))
-    lines = [f"{'':<34}{'n':>5}   {'length um':^{5 * lw}}   {'width um':^{5 * lw}}   {'Q':^{5 * qw}}",
-             f"{'':<34}{'':>5}   {sub}   {sub}   {qsub}"]
+    lines = [
+        f"{'':<34}{'n':>5}   {'length um':^{5 * lw}}   {'width um':^{5 * lw}}   {'Q':^{5 * qw}}",
+        f"{'':<34}{'':>5}   {sub}   {sub}   {qsub}",
+    ]
     rule = "-" * len(lines[1])
     for r in rows:
         if r["level"] != "image":
@@ -129,6 +152,8 @@ def format_table(rows):
         if r["n_spores"] == 0:
             lines.append(f"{name:<34}{0:>5}")
             continue
-        lines.append(f"{name:<34}{r['n_spores']:>5}   {cells(r, 'length', '.2f', lw)}   "
-                     f"{cells(r, 'width', '.2f', lw)}   {cells(r, 'Q', '.3f', qw)}")
+        lines.append(
+            f"{name:<34}{r['n_spores']:>5}   {cells(r, 'length', '.2f', lw)}   "
+            f"{cells(r, 'width', '.2f', lw)}   {cells(r, 'Q', '.3f', qw)}"
+        )
     return "\n".join(lines)

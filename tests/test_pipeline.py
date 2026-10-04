@@ -9,8 +9,7 @@ import pytest
 from spore_size import calibrate_image, process_image, segment_spores
 from spore_size.cli import directory_labels, main
 from spore_size.errors import PhotoRejected
-from conftest import (SAMPLE, SAMPLE_PX_PER_TICK, SAMPLE_RULER_ANGLE_DEG,
-                      SPORES, make_image)
+from conftest import SAMPLE, SAMPLE_PX_PER_TICK, SAMPLE_RULER_ANGLE_DEG, SPORES, make_image
 
 ISOLATED = SPORES[:4]  # the last two synthetic spores touch each other
 
@@ -69,8 +68,11 @@ def test_process_image_on_real_micrograph(tmp_path):
     assert 8 <= summary["n"] <= 14
     assert summary["length_mean"] == pytest.approx(6.9, abs=0.3)
     assert summary["width_mean"] == pytest.approx(5.0, abs=0.3)
-    for name in ("sample_spores_spore_measurements.csv", "sample_spores_spore_overlay.png",
-                 "sample_spores_calib_overlay.png"):
+    for name in (
+        "sample_spores_spore_measurements.csv",
+        "sample_spores_spore_overlay.png",
+        "sample_spores_calib_overlay.png",
+    ):
         assert (tmp_path / name).exists()
 
 
@@ -137,8 +139,13 @@ def test_cli_combined_csvs_per_directory(tmp_path):
             assert {r["image"] for r in csv.DictReader(f)} == {img}
 
     # one plot per image, per directory and for all spores
-    for name in ("collA_photo_spore_plot.png", "collB_photo_spore_plot.png",
-                 "collA_spore_plot.png", "collB_spore_plot.png", "all_spores_plot.png"):
+    for name in (
+        "collA_photo_spore_plot.png",
+        "collB_photo_spore_plot.png",
+        "collA_spore_plot.png",
+        "collB_spore_plot.png",
+        "all_spores_plot.png",
+    ):
         assert (out / name).stat().st_size > 0
 
 
