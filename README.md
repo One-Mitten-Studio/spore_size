@@ -115,6 +115,10 @@ all plots of a run share the same axis ranges, so photos and collections can
 be compared by eye. Each directory has its own colour, used for its photos,
 its own plot and its group in `all_spores_plot.png`.
 
+A dotted ellipse marks mean ± 1 SD: centred on the mean length and width (+),
+with the length SD and width SD as its semi-axes. `all_spores_plot.png`
+shows one per directory in its colour, plus a black one for all spores.
+
 ## Assumptions / things to check
 - **Magnification:** the scale bar is in the eyepiece, so its ticks are the
   same number of pixels apart at every objective -- the program cannot tell
