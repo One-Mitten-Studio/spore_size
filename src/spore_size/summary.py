@@ -14,7 +14,7 @@ For length, width and Q:
 - total, the total error of the mean: stat and sys added in quadrature,
   sqrt(sem^2 + sys^2).
 Each row also has a ready-to-paste publication text:
-  "<length> +/- <SD> um (err: <total>) by <width> +/- <SD> um (err: <total>)".
+  "<length> ± <SD> µm (err: <total>) by <width> ± <SD> µm (err: <total>)".
 Directory and "all" rows pool the individual spores (not the image means).
 """
 import csv
@@ -44,7 +44,7 @@ def q_systematic(length_mean, width_mean, sys_error_um):
 
 
 def publication_text(r):
-    """'6.46 +/- 0.51 um (err: 0.11) by 4.56 +/- 0.32 um (err: 0.10)'; '' if no spores."""
+    """'6.46 ± 0.51 µm (err: 0.11) by 4.56 ± 0.32 µm (err: 0.10)'; '' if no spores."""
     if r["n_spores"] == 0:
         return ""
 
@@ -52,7 +52,7 @@ def publication_text(r):
         return "-" if np.isnan(v) else f"{v:.2f}"
 
     def part(m):
-        return f"{num(r[m + '_mean'])} +/- {num(r[m + '_sd'])} um (err: {num(r[m + '_total_err'])})"
+        return f"{num(r[m + '_mean'])} ± {num(r[m + '_sd'])} µm (err: {num(r[m + '_total_err'])})"
     return f"{part('length')} by {part('width')}"
 
 

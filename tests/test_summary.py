@@ -61,7 +61,7 @@ def test_publication_text():
     rows = _rows("p1.jpg", [6.0, 7.0], [4.0, 5.0])
     r = summary_rows(rows, sys_error_um=0.1)[-1]
     l_err = np.hypot(np.std([6.0, 7.0], ddof=1) / np.sqrt(2), 0.1)
-    assert r["publication"] == (f"6.50 +/- 0.71 um (err: {l_err:.2f}) "
-                                f"by 4.50 +/- 0.71 um (err: {l_err:.2f})")
+    assert r["publication"] == (f"6.50 ± 0.71 µm (err: {l_err:.2f}) "
+                                f"by 4.50 ± 0.71 µm (err: {l_err:.2f})")
     empty = summary_rows([], images=["none.jpg"])[0]
     assert empty["publication"] == ""
