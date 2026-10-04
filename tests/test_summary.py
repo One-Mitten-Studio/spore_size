@@ -7,7 +7,7 @@ from spore_size.summary import describe, format_table, q_systematic, summary_row
 def _rows(image, lengths, widths):
     return [
         {"image": image, "length_um": length, "width_um": width, "Q_ratio": length / width}
-        for length, width in zip(lengths, widths)
+        for length, width in zip(lengths, widths, strict=True)
     ]
 
 

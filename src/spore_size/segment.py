@@ -26,13 +26,24 @@ By default spores touching another spore, or near the edge of the field of
 view, are also left out.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 
+from ._types import CvEllipse, Image, Spore
 from .fov import find_fov_circle, fov_mask
 
 
-def spore_color_masks(hsv, interior_hue=(8, 30), interior_sat=35, rim_sat=60):
+def spore_color_masks(
+    hsv: Image,
+    interior_hue: tuple[int, int] = (8, 30),
+    interior_sat: int = 35,
+    rim_sat: int = 60,
+) -> tuple[Image, Image]:
     """Binary masks (interior, wall) of pixels coloured like spore interior / wall."""
     hue, sat, _ = cv2.split(hsv)
     lo, hi = interior_hue
@@ -41,14 +52,20 @@ def spore_color_masks(hsv, interior_hue=(8, 30), interior_sat=35, rim_sat=60):
     return interior.astype(np.uint8) * 255, wall.astype(np.uint8) * 255
 
 
-def _fill_holes(mask):
+def _fill_holes(mask: Image) -> Image:
     h, w = mask.shape
     flood = mask.copy()
     cv2.floodFill(flood, np.zeros((h + 2, w + 2), np.uint8), (0, 0), 255)
     return cv2.bitwise_or(mask, cv2.bitwise_not(flood))
 
 
-def spore_silhouettes(hsv, inner_fov, interior_hue=(8, 30), interior_sat=35, rim_sat=60):
+def spore_silhouettes(
+    hsv: Image,
+    inner_fov: Image,
+    interior_hue: tuple[int, int] = (8, 30),
+    interior_sat: int = 35,
+    rim_sat: int = 60,
+) -> tuple[Image, Image]:
     """
     Filled mask of spore-coloured objects inside the field of view, plus the
     raw interior-colour mask. Returns (filled, interior).
@@ -61,13 +78,13 @@ def spore_silhouettes(hsv, inner_fov, interior_hue=(8, 30), interior_sat=35, rim
     return _fill_holes(mask), interior
 
 
-def _shape_seeds(comp, core_frac=0.5):
+def _shape_seeds(comp: Image, core_frac: float = 0.5) -> Image:
     """Cores of a filled clump: pixels at least core_frac x max distance from its edge."""
     dist = cv2.distanceTransform(comp, cv2.DIST_L2, 5)
-    return (dist >= core_frac * dist.max()).astype(np.uint8) * 255
+    return (dist >= core_frac * np.max(dist)).astype(np.uint8) * 255
 
 
-def _split_by_seeds(comp, seeds):
+def _split_by_seeds(comp: Image, seeds: Image) -> list[Image]:
     """Split a component mask into one region per seed blob (nearest seed wins)."""
     n_seeds, seed_labels = cv2.connectedComponents(seeds, connectivity=8)
     if n_seeds <= 2:  # background + at most one seed: nothing to split
@@ -83,15 +100,21 @@ def _split_by_seeds(comp, seeds):
         # keep only the part connected to this seed
         n, lbl = cv2.connectedComponents(region, connectivity=8)
         if n > 2:
-            keep = np.bincount(lbl[seed_labels == s]).argmax()
+            keep = np.argmax(np.bincount(lbl[seed_labels == s]))
             region = (lbl == keep).astype(np.uint8) * 255
         regions.append(region)
     return regions
 
 
 def _measure_region(
-    region, offset, min_area_px, max_area_px, min_solidity, min_axis_ratio, max_axis_ratio
-):
+    region: Image,
+    offset: tuple[int, int],
+    min_area_px: int,
+    max_area_px: int,
+    min_solidity: float,
+    min_axis_ratio: float,
+    max_axis_ratio: float,
+) -> Spore | None:
     """Fit an ellipse to one candidate region; None if it fails a quality check."""
     area = int(np.count_nonzero(region))
     if area < min_area_px or area > max_area_px:
@@ -135,7 +158,7 @@ def _measure_region(
     }
 
 
-def _interior_hsv_median(hsv, ellipse, scale=0.6):
+def _interior_hsv_median(hsv: Image, ellipse: CvEllipse, scale: float = 0.6) -> NDArray[Any]:
     """Median H, S, V over the central part of a fitted ellipse (avoids the wall)."""
     (cx, cy), (a, b), angle = ellipse
     r = int(max(a, b) / 2) + 2
@@ -146,7 +169,13 @@ def _interior_hsv_median(hsv, ellipse, scale=0.6):
     return np.median(crop[m > 0], axis=0)
 
 
-def _wall_metrics(gray, grad_mag, ellipse, n_angles=72, band=8):
+def _wall_metrics(
+    gray: Image,
+    grad_mag: Image,
+    ellipse: CvEllipse,
+    n_angles: int = 72,
+    band: int = 8,
+) -> tuple[float, float]:
     """
     Sample the spore outline along radial lines through the fitted ellipse.
     Returns (sharpness, wall_level): the median over the outline of the
@@ -171,23 +200,23 @@ def _wall_metrics(gray, grad_mag, ellipse, n_angles=72, band=8):
 
 
 def segment_spores(
-    img_bgr,
-    interior_hue=(8, 30),
-    interior_sat=35,
-    rim_sat=60,
-    min_area_px=150,
-    max_area_px=20000,
-    min_solidity=0.85,
-    min_axis_ratio=1.05,
-    max_axis_ratio=3.0,
-    min_sat_above_bg=25,
-    min_rel_brightness=0.75,
-    min_sharpness=0.9,
-    max_wall_level=0.6,
-    include_touching=False,
-    fov_margin=0.95,
-    debug_prefix=None,
-):
+    img_bgr: Image,
+    interior_hue: tuple[int, int] = (8, 30),
+    interior_sat: int = 35,
+    rim_sat: int = 60,
+    min_area_px: int = 150,
+    max_area_px: int = 20000,
+    min_solidity: float = 0.85,
+    min_axis_ratio: float = 1.05,
+    max_axis_ratio: float = 3.0,
+    min_sat_above_bg: float = 25,
+    min_rel_brightness: float = 0.75,
+    min_sharpness: float = 0.9,
+    max_wall_level: float = 0.6,
+    include_touching: bool = False,
+    fov_margin: float = 0.95,
+    debug_prefix: str | None = None,
+) -> list[Spore]:
     """
     Returns a list of dicts, one per detected spore, each with the fitted
     ellipse (center, length/width in px, angle) and quality metrics.

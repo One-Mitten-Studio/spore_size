@@ -4,7 +4,7 @@ Measures spore length x width (um) from micrographs that have a diagonal
 0-100 ocular-micrometer scale bar overlay, like the sample photo tested here.
 
 ## Install
-Requires Python 3.9+. From a clone of this repo:
+Requires Python 3.10+. From a clone of this repo:
 
     python3 -m venv .venv
     source .venv/bin/activate
@@ -156,6 +156,7 @@ saturation/brightness 0-255):
         measure.py       per-image pipeline: filter, CSV, overlay
         fov.py           microscope field-of-view detection / micrograph check
         errors.py        PhotoRejected (photo skipped, not an error)
+        _types.py        shared type aliases for annotations
         plots.py         length vs width plots
         summary.py       run statistics (mean, SD, stat/sys/total errors) -> spore_summary.csv
         cli.py           `spore-size` command
@@ -166,6 +167,11 @@ saturation/brightness 0-255):
     pytest
     black src tests        # code formatting (line length 100, set in pyproject.toml)
     ruff check src tests   # linting (rules set in pyproject.toml; --fix for auto-fixes)
+    mypy                   # type checking (settings in pyproject.toml)
+
+All functions in the package have type annotations, and mypy requires them
+for new code. Shared types (`Image`, `Spore`, `Calibration`, ...) are in
+`src/spore_size/_types.py`.
 
 ## License
 MIT -- see [LICENSE](LICENSE).

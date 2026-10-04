@@ -18,31 +18,37 @@ Output: pixels-per-scale-unit for the image. Multiply by microns-per-unit
 uses a different convention) to get the microns-per-pixel calibration.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
 import cv2
 import numpy as np
+from numpy.typing import NDArray
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
+from ._types import Calibration, Image, Point
 from .errors import PhotoRejected
 from .fov import find_fov_circle, fov_mask
 
 
-def _achromatic_edges(img_bgr, fov_center, fov_radius):
+def _achromatic_edges(img_bgr: Image, fov_center: Point, fov_radius: float) -> Image:
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
     sat = hsv[:, :, 1]
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
 
     inner_fov = fov_mask(img_bgr.shape, fov_center, fov_radius, shrink=0.85)
-    low_sat = (sat < 35).astype(np.uint8) * 255
-    low_sat = cv2.bitwise_and(low_sat, inner_fov)
+    low_sat = cv2.bitwise_and((sat < 35).astype(np.uint8) * 255, inner_fov)
     edges = cv2.Canny(gray, 40, 120)
     return cv2.bitwise_and(edges, edges, mask=low_sat)
 
 
-def _ruler_region_mask(edges_achromatic):
+def _ruler_region_mask(edges_achromatic: Image) -> Image:
     density = cv2.boxFilter((edges_achromatic > 0).astype(np.float32), -1, (25, 25))
-    dense_mask = (density > 0.10).astype(np.uint8) * 255
-    dense_mask = cv2.morphologyEx(dense_mask, cv2.MORPH_CLOSE, np.ones((45, 45), np.uint8))
+    dense_mask = cv2.morphologyEx(
+        (density > 0.10).astype(np.uint8) * 255, cv2.MORPH_CLOSE, np.ones((45, 45), np.uint8)
+    )
     cnts, _ = cv2.findContours(dense_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not cnts:
         raise RuntimeError("Could not locate ruler blob (no dense achromatic-edge region found)")
@@ -52,7 +58,7 @@ def _ruler_region_mask(edges_achromatic):
     return cv2.dilate(mask, np.ones((5, 5), np.uint8))
 
 
-def _fit_ruler_line(edges_in_region):
+def _fit_ruler_line(edges_in_region: Image) -> dict[str, Any]:
     lines = cv2.HoughLinesP(
         edges_in_region, 1, np.pi / 360, threshold=15, minLineLength=8, maxLineGap=2
     )
@@ -78,7 +84,7 @@ def _fit_ruler_line(edges_in_region):
     return {"angle_deg": angle_deg, "center": tuple(mean), "n_ticks": int(inlier.sum())}
 
 
-def _longest_regular_run(peaks, px_per_tick, tol=0.2):
+def _longest_regular_run(peaks: NDArray[np.intp], px_per_tick: float, tol: float = 0.2) -> int:
     """Longest run of consecutive tick gaps within tol of the expected spacing."""
     ok = np.abs(np.diff(peaks) / px_per_tick - 1) < tol
     best = run = 0
@@ -88,7 +94,9 @@ def _longest_regular_run(peaks, px_per_tick, tol=0.2):
     return best
 
 
-def _measure_spacing(gray, center, angle_deg, strip_len=1600, strip_half_h=25):
+def _measure_spacing(
+    gray: Image, center: Point, angle_deg: float, strip_len: int = 1600, strip_half_h: int = 25
+) -> tuple[float, int, NDArray[np.float32], NDArray[np.intp]]:
     h, w = gray.shape
     M = cv2.getRotationMatrix2D(center, angle_deg, 1.0)
     rot = cv2.warpAffine(gray, M, (w, h))
@@ -111,7 +119,12 @@ def _measure_spacing(gray, center, angle_deg, strip_len=1600, strip_half_h=25):
     return px_per_tick, len(peaks), strip, peaks
 
 
-def calibrate_image(img_bgr, microns_per_tick=1.0, min_regular_ticks=8, debug_prefix=None):
+def calibrate_image(
+    img_bgr: Image,
+    microns_per_tick: float = 1.0,
+    min_regular_ticks: int = 8,
+    debug_prefix: str | None = None,
+) -> Calibration:
     """
     Detect the scale bar in a BGR image and return its calibration as a dict
     with px_per_tick, microns_per_px, angle_deg, center and n_peaks.

@@ -13,18 +13,22 @@ given on the command line) and, for each directory the images came from,
 <dir>_spores_combined.csv with just that directory's spores.
 """
 
+from __future__ import annotations
+
 import argparse
 import csv
 import os
 import sys
+from collections.abc import Sequence
 
+from ._types import Spore
 from .errors import PhotoRejected
 from .measure import process_image
 from .plots import write_plots
 from .summary import DEFAULT_SYS_ERROR_UM, format_table, summary_rows, write_summary_csv
 
 
-def build_parser():
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="spore-size",
         description="Measure spore length x width (um) from micrographs with an "
@@ -73,7 +77,7 @@ def build_parser():
     return ap
 
 
-def write_combined_csv(rows, csv_path):
+def write_combined_csv(rows: list[Spore], csv_path: str) -> None:
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(["image", "length_um", "width_um", "Q_ratio"])
@@ -83,14 +87,14 @@ def write_combined_csv(rows, csv_path):
             )
 
 
-def directory_labels(dirs):
+def directory_labels(dirs: Sequence[str]) -> dict[str, str]:
     """
     Short, unique file-name labels for image directories: the last path
     component (e.g. "inat255552721"), or the whole path joined with "_" when
     two directories share a last component.
     """
 
-    def last(d):
+    def last(d: str) -> str:
         return os.path.basename(os.path.normpath(d))
 
     labels = {}
@@ -101,7 +105,7 @@ def directory_labels(dirs):
     return labels
 
 
-def main(argv=None):
+def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     os.makedirs(args.out_dir, exist_ok=True)

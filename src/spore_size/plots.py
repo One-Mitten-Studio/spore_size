@@ -14,6 +14,8 @@ the length and width SDs (mean ± 1 SD). The all-spores plot also draws one
 per directory, in the directory's colour.
 """
 
+from __future__ import annotations
+
 import os
 
 import matplotlib
@@ -22,9 +24,17 @@ matplotlib.use("Agg")  # file output only, no display needed
 import matplotlib.patheffects as pe  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.collections import PatchCollection  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Circle, Ellipse  # noqa: E402
+
+from ._types import Spore, SummaryRow  # noqa: E402
+
+#: ((x_min, x_max), (y_min, y_max)) in um
+Limits = tuple[tuple[float, float], tuple[float, float]]
+#: (legend label, hex colour, spores)
+Group = tuple[str, str, list[Spore]]
 
 # fixed-order categorical palette (colour follows the directory, not its rank)
 PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
@@ -34,14 +44,14 @@ MUTED = "#666666"
 GRID = "#e5e5e5"
 
 
-def axis_limits(spore_rows, pad_um=0.4):
+def axis_limits(spore_rows: list[Spore], pad_um: float = 0.4) -> Limits:
     """Shared (xlim, ylim) covering every spore in the run, padded."""
     ls = [r["length_um"] for r in spore_rows]
     ws = [r["width_um"] for r in spore_rows]
     return ((min(ls) - pad_um, max(ls) + pad_um), (min(ws) - pad_um, max(ws) + pad_um))
 
 
-def sd_ellipse(ax, rows, colour, linewidth):
+def sd_ellipse(ax: Axes, rows: list[Spore], colour: str, linewidth: float) -> None:
     """Dotted ellipse at the mean (length, width) with semi-axes = SDs, plus a + at the mean."""
     if len(rows) < 2:
         return  # no SD from a single spore
@@ -73,7 +83,14 @@ def sd_ellipse(ax, rows, colour, linewidth):
     )
 
 
-def plot_spores(groups, path, title, subtitle, limits, radius_um):
+def plot_spores(
+    groups: list[Group],
+    path: str,
+    title: str,
+    subtitle: str,
+    limits: Limits,
+    radius_um: float,
+) -> None:
     """
     groups: list of (label, colour, rows). A legend is drawn when there is
     more than one group.
@@ -153,12 +170,18 @@ def plot_spores(groups, path, title, subtitle, limits, radius_um):
     plt.close(fig)
 
 
-def _rgba(hex_colour, alpha):
+def _rgba(hex_colour: str, alpha: float) -> tuple[float, float, float, float]:
     r, g, b = (int(hex_colour[i : i + 2], 16) / 255 for i in (1, 3, 5))
     return (r, g, b, alpha)
 
 
-def write_plots(spore_rows, summary, out_dir, dir_labels, radius_um):
+def write_plots(
+    spore_rows: list[Spore],
+    summary: list[SummaryRow],
+    out_dir: str,
+    dir_labels: dict[str, str],
+    radius_um: float,
+) -> list[str]:
     """
     Write <image stem>_spore_plot.png per image, <dir label>_spore_plot.png
     per directory and all_spores_plot.png. summary is the list from
@@ -172,7 +195,7 @@ def write_plots(spore_rows, summary, out_dir, dir_labels, radius_um):
     colour_of = {d: PALETTE[i % len(PALETTE)] for i, d in enumerate(dirs)}
     paths = []
 
-    def subtitle(row):
+    def subtitle(row: SummaryRow) -> str:
         return f"n = {row['n_spores']}   {row['publication']}"
 
     for img in dict.fromkeys(r["image"] for r in spore_rows):

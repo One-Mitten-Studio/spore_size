@@ -135,7 +135,7 @@ def test_cli_combined_csvs_per_directory(tmp_path):
     with open(out / "all_spores_combined.csv") as f:
         all_images = {r["image"] for r in csv.DictReader(f)}
     assert all_images == set(images)
-    for d, img in zip(("collA", "collB"), images):
+    for d, img in zip(("collA", "collB"), images, strict=True):
         with open(out / f"{d}_spores_combined.csv") as f:
             assert {r["image"] for r in csv.DictReader(f)} == {img}
 

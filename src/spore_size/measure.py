@@ -9,19 +9,23 @@ End-to-end spore sizing for a single micrograph:
   5. write an annotated overlay + a CSV of measurements
 """
 
+from __future__ import annotations
+
 import csv
 import os
+from typing import Any
 
 import cv2
 import numpy as np
 
+from ._types import Calibration, Image, Spore
 from .calibration import calibrate_image
 from .errors import PhotoRejected
 from .fov import check_micrograph, find_fov_circle, fov_mask
 from .segment import segment_spores, spore_silhouettes
 
 
-def clutter_fraction(img_bgr, delta_e=10.0):
+def clutter_fraction(img_bgr: Image, delta_e: float = 10.0) -> float:
     """
     Fraction of the field of view covered by non-spore clutter: areas whose
     (smoothed) colour differs clearly from the background and that are not
@@ -32,15 +36,17 @@ def clutter_fraction(img_bgr, delta_e=10.0):
     center, r = find_fov_circle(gray)
     inner = fov_mask(gray.shape, center, r, shrink=0.85) > 0
     hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
-    spores, _ = spore_silhouettes(hsv, fov_mask(gray.shape, center, r, shrink=0.97))
-    spores = cv2.dilate(spores, np.ones((15, 15), np.uint8))[inner] > 0
+    silhouettes, _ = spore_silhouettes(hsv, fov_mask(gray.shape, center, r, shrink=0.97))
+    near_spore = cv2.dilate(silhouettes, np.ones((15, 15), np.uint8))[inner] > 0
     lab = cv2.cvtColor(cv2.GaussianBlur(img_bgr, (0, 0), 4), cv2.COLOR_BGR2LAB)
-    lab = lab[inner].astype(np.float32)
-    differs = np.linalg.norm(lab - np.median(lab, axis=0), axis=1) > delta_e
-    return float(np.mean(differs & ~spores))
+    lab_fov = lab[inner].astype(np.float32)
+    differs = np.linalg.norm(lab_fov - np.median(lab_fov, axis=0), axis=1) > delta_e
+    return float(np.mean(differs & ~near_spore))
 
 
-def near_ruler(spore, calib, margin_px=60, half_len_ticks=55):
+def near_ruler(
+    spore: Spore, calib: Calibration, margin_px: float = 60, half_len_ticks: float = 55
+) -> bool:
     """True if the spore lies on or right next to the scale bar."""
     cx, cy = calib["center"]
     ang = np.radians(calib["angle_deg"])
@@ -52,7 +58,9 @@ def near_ruler(spore, calib, margin_px=60, half_len_ticks=55):
     return abs(along) < half_len + margin_px and across < spore["length_px"] / 2 + margin_px
 
 
-def drop_size_outliers(spores, k=3.0, min_rel_spread=0.04, min_n=5):
+def drop_size_outliers(
+    spores: list[Spore], k: float = 3.0, min_rel_spread: float = 0.04, min_n: int = 5
+) -> list[Spore]:
     """
     Drop spores whose length or width is far from the photo's median
     (more than k robust SDs, with the SD floored at min_rel_spread x median).
@@ -66,17 +74,17 @@ def drop_size_outliers(spores, k=3.0, min_rel_spread=0.04, min_n=5):
         med = np.median(x)
         sd = max(1.4826 * np.median(np.abs(x - med)), min_rel_spread * med)
         keep &= np.abs(x - med) <= k * sd
-    return [s for s, ok in zip(spores, keep) if ok]
+    return [s for s, ok in zip(spores, keep, strict=True) if ok]
 
 
 def filter_spores(
-    raw_spores,
-    um_per_px,
-    min_length_um=3.0,
-    max_length_um=25.0,
-    min_width_um=1.5,
-    max_width_um=18.0,
-):
+    raw_spores: list[Spore],
+    um_per_px: float,
+    min_length_um: float = 3.0,
+    max_length_um: float = 25.0,
+    min_width_um: float = 1.5,
+    max_width_um: float = 18.0,
+) -> list[Spore]:
     """Convert spores to microns and keep only those within the size limits."""
     kept = []
     for s in raw_spores:
@@ -97,7 +105,7 @@ def filter_spores(
     return kept
 
 
-def summarize(kept, um_per_px):
+def summarize(kept: list[Spore], um_per_px: float) -> dict[str, Any]:
     """Mean / SD / range statistics for a list of kept spores."""
     n = len(kept)
     lengths = np.array([s["length_um"] for s in kept])
@@ -116,7 +124,7 @@ def summarize(kept, um_per_px):
     }
 
 
-def write_measurements_csv(kept, csv_path):
+def write_measurements_csv(kept: list[Spore], csv_path: str) -> None:
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(
@@ -148,7 +156,7 @@ def write_measurements_csv(kept, csv_path):
             )
 
 
-def draw_overlay(img_bgr, kept, um_per_px):
+def draw_overlay(img_bgr: Image, kept: list[Spore], um_per_px: float) -> Image:
     """Annotated copy of the image with a red ellipse around each kept spore."""
     overlay = img_bgr.copy()
     for s in kept:
@@ -166,17 +174,17 @@ def draw_overlay(img_bgr, kept, um_per_px):
 
 
 def process_image(
-    path,
-    out_dir,
-    um_per_tick=1.0,
-    min_length_um=3.0,
-    max_length_um=25.0,
-    min_width_um=1.5,
-    max_width_um=18.0,
-    include_touching=False,
-    max_clutter=0.28,
-    save_debug=True,
-):
+    path: str,
+    out_dir: str,
+    um_per_tick: float = 1.0,
+    min_length_um: float = 3.0,
+    max_length_um: float = 25.0,
+    min_width_um: float = 1.5,
+    max_width_um: float = 18.0,
+    include_touching: bool = False,
+    max_clutter: float = 0.28,
+    save_debug: bool = True,
+) -> tuple[dict[str, Any], list[Spore]]:
     """
     Calibrate, segment and measure one image, writing its CSV and overlay
     into out_dir. Returns (summary_dict, kept_spores).
