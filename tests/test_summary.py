@@ -51,4 +51,7 @@ def test_systematic_error_columns():
     expected = (6.5 / 4.5) * np.hypot(0.1 / 6.5, 0.1 / 4.5)
     assert r["Q_sys"] == pytest.approx(expected)
     assert q_systematic(6.5, 4.5, 0.1) == pytest.approx(expected)
+    # total error: stat and sys in quadrature
+    assert r["length_total_err"] == pytest.approx(np.hypot(r["length_sem"], 0.1))
+    assert r["Q_total_err"] == pytest.approx(np.hypot(r["Q_sem"], expected))
     assert "size" not in r

@@ -78,8 +78,9 @@ summary table at the end.
 `spore_summary.csv` has one row per photo, a total row for each directory
 (directly after its photos) and a final row for all spores. Directory and
 "all" rows pool the individual spores rather than averaging photo means.
-For length, width and Q it gives:
+For length, width and Q it gives, in this order:
 - `_mean`
+- `_sd`: the spread of individual spores -- natural variation, not an error.
 - `_sem`: the statistical error of the mean, SD / sqrt(n) (sample SD, n-1
   denominator) -- how much the mean would vary if another random sample of
   the same number of spores were measured. Shrinks as more spores are
@@ -88,9 +89,11 @@ For length, width and Q it gives:
   than ~0.1 um, so every measurement carries at least that error, and it
   does not average away (`--sys-error-um` to change). For Q it is propagated
   from the length and width errors.
-- `_sd`: the spread of individual spores -- natural variation, not an error.
+- `_total_err`: the total error of the mean, stat and sys added in quadrature,
+  sqrt(sem² + sys²).
 
-Report a mean as `mean ± stat ± sys`, e.g. `6.46 ± 0.05 ± 0.10 µm`. When
+Report a mean as `mean ± stat ± sys`, e.g. `6.46 ± 0.05 ± 0.10 µm`, or with
+the total error, `6.46 ± 0.11 µm`. When
 comparing collections measured with the same microscope and scale bar, the
 systematic error is largely shared, so differences between them are judged
 against the statistical errors.
@@ -135,7 +138,7 @@ saturation/brightness 0-255):
         measure.py       per-image pipeline: filter, CSV, overlay
         fov.py           microscope field-of-view detection / micrograph check
         errors.py        PhotoRejected (photo skipped, not an error)
-        summary.py       run statistics (mean, stat/sys errors, SD) -> spore_summary.csv
+        summary.py       run statistics (mean, SD, stat/sys/total errors) -> spore_summary.csv
         cli.py           `spore-size` command
     tests/               pytest suite (real micrograph + synthetic spores)
 

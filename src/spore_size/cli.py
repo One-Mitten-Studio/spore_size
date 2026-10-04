@@ -6,9 +6,9 @@ Usage:
                [--min-length-um 3] [--max-length-um 25]
                [--min-width-um 1.5] [--max-width-um 18]
 
-Writes spore_summary.csv (mean, statistical error (SEM), systematic error
-and SD of length, width and Q for each image, each image directory and all
-spores), all_spores_combined.csv (every measured spore, with the image path as
+Writes spore_summary.csv (mean, SD, statistical error (SEM), systematic
+error and total error of length, width and Q for each image, each image
+directory and all spores), all_spores_combined.csv (every measured spore, with the image path as
 given on the command line) and, for each directory the images came from,
 <dir>_spores_combined.csv with just that directory's spores.
 """
@@ -124,8 +124,9 @@ def main(argv=None):
         summary_path = os.path.join(args.out_dir, "spore_summary.csv")
         write_summary_csv(stats, summary_path)
         print(f"\nSummary: {summary_path}")
-        print(f"stat = SEM = SD/sqrt(n); sys = {args.sys_error_um} um measurement limit "
-              f"(propagated for Q); SD = spread of individual spores\n")
+        print(f"SD = spread of individual spores; stat = SEM = SD/sqrt(n); "
+              f"sys = {args.sys_error_um} um measurement limit (propagated for Q); "
+              f"total = sqrt(stat^2 + sys^2)\n")
         print(format_table(stats))
 
     return 0 if n_ok else 1

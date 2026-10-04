@@ -4,13 +4,15 @@ all spores together, written to a single CSV.
 
 For length, width and Q:
 - mean
+- SD, the spread of individual spores (natural variation, not an error).
 - SEM, the statistical error of the mean: SD / sqrt(n), with the sample SD
   (n-1 denominator). How much the mean would vary if another random sample of
   n spores were measured from the same population; shrinks as n grows.
 - sys, the systematic error: the light microscope's resolution limits every
   length measurement to ~0.1 um, and that does not average away with more
   spores. For Q = L/W it is propagated from the length and width errors.
-- SD, the spread of individual spores (natural variation).
+- total, the total error of the mean: stat and sys added in quadrature,
+  sqrt(sem^2 + sys^2).
 Directory and "all" rows pool the individual spores (not the image means).
 """
 import csv
@@ -19,7 +21,7 @@ import os
 import numpy as np
 
 MEASURES = (("length", "length_um"), ("width", "width_um"), ("Q", "Q_ratio"))
-STATS = ("mean", "sem", "sys", "sd")
+STATS = ("mean", "sd", "sem", "sys", "total_err")
 DEFAULT_SYS_ERROR_UM = 0.1
 
 
@@ -63,6 +65,8 @@ def summary_rows(spore_rows, images=None, sys_error_um=DEFAULT_SYS_ERROR_UM):
         out["width_sys"] = sys_error_um if has else np.nan
         out["Q_sys"] = (q_systematic(out["length_mean"], out["width_mean"], sys_error_um)
                         if has else np.nan)
+        for m, _ in MEASURES:  # total error: stat and sys in quadrature
+            out[f"{m}_total_err"] = np.hypot(out[f"{m}_sem"], out[f"{m}_sys"])
         return out
 
     result = []
@@ -88,24 +92,26 @@ def write_summary_csv(rows, csv_path):
 
 
 def format_table(rows):
-    """Plain-text version of the summary for the terminal: mean ± stat ± sys (SD)."""
+    """Plain-text version of the summary for the terminal."""
     def num(v, fmt):
         return "-" if np.isnan(v) else format(v, fmt)
 
-    def cell(r, m, fmt):
-        return (f"{num(r[m + '_mean'], fmt)} ± {num(r[m + '_sem'], fmt)} "
-                f"± {num(r[m + '_sys'], fmt)}  ({num(r[m + '_sd'], fmt)})")
+    def cells(r, m, fmt, width):
+        return "".join(f"{num(r[f'{m}_{s}'], fmt):>{width}}" for s in STATS)
 
-    head = "mean ± stat ± sys  (SD)"
-    lines = [f"{'':<34} {'n':>4}  {'length um':<27} {'width um':<27} {'Q':<27}",
-             f"{'':<34} {'':>4}  {head:<27} {head:<27} {head:<27}"]
+    lw, qw = 6, 7  # column widths for length/width and for Q
+    sub = "".join(f"{h:>{lw}}" for h in ("mean", "SD", "stat", "sys", "total"))
+    qsub = "".join(f"{h:>{qw}}" for h in ("mean", "SD", "stat", "sys", "total"))
+    lines = [f"{'':<34}{'n':>5}   {'length um':^{5 * lw}}   {'width um':^{5 * lw}}   {'Q':^{5 * qw}}",
+             f"{'':<34}{'':>5}   {sub}   {sub}   {qsub}"]
+    rule = "-" * len(lines[1])
     for r in rows:
         if r["level"] != "image":
-            lines.append("-" * 122)
+            lines.append(rule)
         name = r["name"] if r["level"] == "image" else f"{r['name']} (total)"
         if r["n_spores"] == 0:
-            lines.append(f"{name:<34} {0:>4}")
+            lines.append(f"{name:<34}{0:>5}")
             continue
-        lines.append(f"{name:<34} {r['n_spores']:>4}  {cell(r, 'length', '.2f'):<27} "
-                     f"{cell(r, 'width', '.2f'):<27} {cell(r, 'Q', '.3f'):<27}")
+        lines.append(f"{name:<34}{r['n_spores']:>5}   {cells(r, 'length', '.2f', lw)}   "
+                     f"{cells(r, 'width', '.2f', lw)}   {cells(r, 'Q', '.3f', qw)}")
     return "\n".join(lines)
