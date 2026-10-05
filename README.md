@@ -98,8 +98,15 @@ pointer, dragging with the right or middle button pans, and `h` returns to
 the whole photo. For each spore, click the two ends of its length (red line), then the two sides of its
 width (blue line). The scale bar is calibrated automatically; if that fails
 (or press `c`), click its 0 and 100 ticks (`--ruler-ticks` if you click
-other marks). Keys: `u` / Backspace undo, `c` calibrate by hand, `n` next
-photo, `q` save and quit.
+other marks). While the photo needs calibrating, the status lines are red;
+clicks then set the scale, not a spore. A hand calibration more than 15%
+off the run's automatic calibrations (or, without any, the other photos')
+is held until you click the ticks again or press `a` to accept it, and a
+saved one is flagged when the photo is reopened, so clicking a spore as the
+scale by mistake can't silently inflate every measurement. The status line
+shows each spore's size in µm as you finish it. Keys: `u` / Backspace undo,
+`c` calibrate by hand, `a` accept a flagged calibration, `n` next photo,
+`q` save and quit.
 
 Measurements are saved after every spore to
 `<photo>_manual_measurements.csv` (with the clicked points), and reopening a

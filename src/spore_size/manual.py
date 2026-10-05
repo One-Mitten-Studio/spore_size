@@ -33,6 +33,11 @@ from .summary import DEFAULT_SYS_ERROR_UM
 
 ZOOM_STEP: Final = 1.25  # view shrinks or grows by this factor per wheel step or +/- key
 MIN_VIEW_PX: Final = 20.0  # never zoom in further than this many image pixels across
+# a hand calibration this far from the other photos' (as a fraction) must be confirmed
+CALIB_TOLERANCE: Final = 0.15
+# without other photos to compare with, the clicked full scale (ruler_ticks) must span at
+# least this fraction of the photo's diagonal; a spore clicked by mistake spans far less
+MIN_SCALE_FRACTION: Final = 0.05
 
 Limits = tuple[float, float]
 
@@ -66,7 +71,9 @@ class ImageMeasurement:
 
     Clicks build up a spore: two points for the length, two for the width.
     In calibration mode the next two clicks are the 0 and full-scale ticks
-    of the scale bar instead.
+    of the scale bar instead. A calibration far from expected_um_per_px (the
+    other photos' calibration), or spanning implausibly few pixels, is held as
+    suspect_um_per_px until accepted or clicked again.
     """
 
     def __init__(
@@ -76,6 +83,8 @@ class ImageMeasurement:
         calibration: str = "",
         um_per_tick: float = 1.0,
         ruler_ticks: float = 100.0,
+        expected_um_per_px: float | None = None,
+        diagonal_px: float | None = None,
     ) -> None:
         """Start measuring a photo, with a known calibration or none yet."""
         self.path = path
@@ -86,25 +95,60 @@ class ImageMeasurement:
         self.spores: list[tuple[Point, Point, Point, Point]] = []
         self.pending: list[Point] = []
         self.calibrating = um_per_px is None
+        self.expected_um_per_px = expected_um_per_px
+        self.diagonal_px = diagonal_px
+        self.suspect_um_per_px: float | None = None
+        self.suspect_reason = ""
 
     def start_calibration(self) -> None:
         """Make the next two clicks the scale bar's 0 and full-scale ticks."""
         self.calibrating = True
         self.pending = []
+        self.suspect_um_per_px = None
+
+    def calibration_problem(self, um_per_px: float, span_px: float) -> str:
+        """Return why a hand calibration looks wrong, or "" if it looks right."""
+        expected = self.expected_um_per_px
+        if expected:
+            if abs(um_per_px / expected - 1) > CALIB_TOLERANCE:
+                return (
+                    f"{um_per_px:.4f} µm/px is {um_per_px / expected:.2g}x "
+                    f"the other photos' {expected:.4f} µm/px"
+                )
+            return ""
+        if self.diagonal_px and span_px < MIN_SCALE_FRACTION * self.diagonal_px:
+            return f"the two clicks are only {span_px:.0f} px apart"
+        return ""
+
+    def accept_suspect_calibration(self) -> bool:
+        """Accept a held calibration as it is; return False if none is held."""
+        if self.suspect_um_per_px is None:
+            return False
+        self.um_per_px = self.suspect_um_per_px
+        self.calibration = "manual"
+        self.calibrating = False
+        self.suspect_um_per_px = None
+        return True
 
     def click(self, x: float, y: float) -> str:
-        """Add a clicked point; return "point", "spore" or "calibrated"."""
+        """Add a clicked point; return "point", "spore", "calibrated" or "suspect"."""
         self.pending.append((x, y))
         if self.calibrating:
+            if len(self.pending) == 1:
+                self.suspect_um_per_px = None
             if len(self.pending) < 2:
                 return "point"
             span_px = _distance(self.pending[0], self.pending[1])
             self.pending = []
             if span_px <= 0:
                 return "point"
-            self.um_per_px = self.ruler_ticks * self.um_per_tick / span_px
-            self.calibration = "manual"
-            self.calibrating = False
+            um_per_px = self.ruler_ticks * self.um_per_tick / span_px
+            problem = self.calibration_problem(um_per_px, span_px)
+            if problem:
+                self.suspect_um_per_px, self.suspect_reason = um_per_px, problem
+                return "suspect"
+            self.suspect_um_per_px = um_per_px
+            self.accept_suspect_calibration()
             return "calibrated"
         if len(self.pending) < 4:
             return "point"
@@ -192,18 +236,34 @@ def manual_csv_path(path: str, out_dir: str) -> str:
 
 
 def open_measurement(
-    path: str, out_dir: str, um_per_tick: float, ruler_ticks: float
+    path: str,
+    out_dir: str,
+    um_per_tick: float,
+    ruler_ticks: float,
+    expected_um_per_px: float | None = None,
 ) -> ImageMeasurement:
-    """Load a photo's saved measurements, or start new ones with auto calibration."""
+    """Load a photo's saved measurements, or start new ones with auto calibration.
+
+    expected_um_per_px (the other photos' calibration) is what a hand
+    calibration of this photo is checked against.
+    """
+    img = cv2.imread(path)
+    if img is None:
+        raise RuntimeError(f"Could not read image: {path}")
+    diagonal_px = float(np.hypot(*img.shape[:2]))
     csv_path = manual_csv_path(path, out_dir)
     if os.path.exists(csv_path):
         m = ImageMeasurement.load_csv(path, csv_path, um_per_tick, ruler_ticks)
         if m.um_per_px is not None:
+            m.expected_um_per_px, m.diagonal_px = expected_um_per_px, diagonal_px
             return m
-    m = ImageMeasurement(path, um_per_tick=um_per_tick, ruler_ticks=ruler_ticks)
-    img = cv2.imread(path)
-    if img is None:
-        raise RuntimeError(f"Could not read image: {path}")
+    m = ImageMeasurement(
+        path,
+        um_per_tick=um_per_tick,
+        ruler_ticks=ruler_ticks,
+        expected_um_per_px=expected_um_per_px,
+        diagonal_px=diagonal_px,
+    )
     try:
         calib = calibrate_image(img, microns_per_tick=um_per_tick)
         m.um_per_px = calib["microns_per_px"]
@@ -215,18 +275,30 @@ def open_measurement(
 
 
 def instructions(m: ImageMeasurement) -> str:
-    """Return the two status lines shown above the photo: the next step, then the controls."""
+    """Return the status lines shown above the photo: the next step, then the controls."""
     controls = (
         "wheel zoom   right/middle drag pan   h home view   |   "
         "u undo   c calibrate   n next photo   q save & quit"
     )
+    if m.calibrating and m.suspect_um_per_px is not None and not m.pending:
+        return (
+            f"CHECK CALIBRATION: {m.suspect_reason}\n"
+            f"Click the scale bar's 0 and {m.ruler_ticks:g} ticks again, "
+            f"or press a to accept it\n{controls}"
+        )
     if m.calibrating:
         step = "the 0 tick" if not m.pending else f"the {m.ruler_ticks:g} tick"
-        return f"Calibrate: click {step} of the scale bar\n{controls}"
+        return f"CALIBRATE FIRST: click {step} of the scale bar (not a spore)\n{controls}"
     steps = ["length: one end", "length: other end", "width: one side", "width: other side"]
     n = len(m.spores) + 1
     calib = f"{m.um_per_px:.4f} µm/px ({m.calibration})"
-    return f"Spore {n} {steps[len(m.pending)]}      {calib}\n{controls}"
+    rows = m.spore_rows()
+    last = (
+        f"      last spore {rows[-1]['length_um']:.2f} x {rows[-1]['width_um']:.2f} µm"
+        if rows
+        else ""
+    )
+    return f"Spore {n} {steps[len(m.pending)]}      {calib}{last}\n{controls}"
 
 
 def keep_within(lim: Limits, full: Limits) -> Limits:
@@ -281,7 +353,7 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
     ax.imshow(img)
     ax.set_axis_off()
     # leave a band at the top for the status lines, which tight_layout would not
-    fig.subplots_adjust(left=0.005, right=0.995, bottom=0.005, top=0.93)
+    fig.subplots_adjust(left=0.005, right=0.995, bottom=0.005, top=0.9)
     status = fig.text(0.01, 0.995, "", fontsize=10, va="top", ha="left", linespacing=1.6)
     full_x, full_y = ax.get_xlim(), ax.get_ylim()
     artists: list[Any] = []
@@ -305,6 +377,8 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
             colour = "lime" if m.calibrating else ("red" if len(m.pending) <= 2 else "#1f4fff")
             artists.extend(ax.plot(xs, ys, "+", color=colour, ms=12, mew=1.5))
         status.set_text(instructions(m))
+        status.set_color("red" if m.calibrating else "black")
+        status.set_fontweight("bold" if m.calibrating else "normal")
         fig.canvas.draw_idle()
 
     def zoom(x: float, y: float, factor: float) -> None:
@@ -363,6 +437,9 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
             m.save_csv(csv_path)
         elif event.key == "c":
             m.start_calibration()
+        elif event.key == "a":
+            if m.accept_suspect_calibration():
+                m.save_csv(csv_path)
         elif event.key in ("n", "q"):
             state["quit"] = event.key == "q"
             plt.close(fig)
@@ -448,6 +525,46 @@ def qt_display_problem() -> str | None:
     )
 
 
+def saved_calibrations(paths: Sequence[str], out_dir: str) -> dict[str, tuple[float, str]]:
+    """Return the saved (µm/px, "auto" or "manual") of each photo with hand measurements."""
+    calibs = {}
+    for path in paths:
+        csv_path = manual_csv_path(path, out_dir)
+        if os.path.exists(csv_path):
+            m = ImageMeasurement.load_csv(path, csv_path)
+            if m.um_per_px is not None:
+                calibs[path] = (m.um_per_px, m.calibration)
+    return calibs
+
+
+def expected_calibration(calibs: dict[str, tuple[float, str]], path: str) -> float | None:
+    """Return the µm/px that path's calibration should be close to, or None if unknown.
+
+    That is the median of the other photos' automatic calibrations, which come from
+    the detected tick spacing and can be trusted. Without any, it is the median of
+    all hand calibrations, path's own included, so that one bad photo out of three
+    stands out instead of pulling the other two's reference.
+    """
+    autos = [v for p, (v, kind) in calibs.items() if p != path and kind == "auto"]
+    values = autos or [v for v, _ in calibs.values()]
+    return float(np.median(values)) if values else None
+
+
+def flag_saved_calibration(m: ImageMeasurement) -> str:
+    """Hold a saved hand calibration that disagrees with the other photos for checking.
+
+    Returns the reason, or "" if the calibration looks right.
+    """
+    if m.calibration != "manual" or m.um_per_px is None:
+        return ""
+    problem = m.calibration_problem(m.um_per_px, float("inf"))
+    if problem:
+        saved = m.um_per_px
+        m.start_calibration()
+        m.suspect_um_per_px, m.suspect_reason = saved, f"saved calibration {problem}"
+    return problem
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run spore-measure on the given images; return the process exit code."""
     from .cli import write_run_reports
@@ -470,15 +587,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         if problem:
             print(problem, file=sys.stderr)
             return 1
+        calibs = saved_calibrations(args.images, args.out_dir)
         for path in args.images:
+            expected = expected_calibration(calibs, path)
             try:
-                m = open_measurement(path, args.out_dir, args.um_per_tick, args.ruler_ticks)
+                m = open_measurement(
+                    path, args.out_dir, args.um_per_tick, args.ruler_ticks, expected
+                )
             except Exception as e:
                 print(f"[FAILED] {path}: {e}", file=sys.stderr)
                 continue
-            if not measure_window(m, manual_csv_path(path, args.out_dir)):
+            problem = flag_saved_calibration(m)
+            if problem:
+                print(f"{os.path.basename(path)}: saved calibration {problem}; check it")
+            keep_going = measure_window(m, manual_csv_path(path, args.out_dir))
+            if m.um_per_px is not None:
+                calibs[path] = (m.um_per_px, m.calibration)
+            if not keep_going:
                 break
 
+    calibs = saved_calibrations(args.images, args.out_dir)
     all_rows: list[Spore] = []
     measured: list[str] = []
     for path in args.images:
@@ -489,6 +617,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         measured.append(path)
         all_rows.extend(rows)
         print(f"{os.path.basename(path)}: {len(rows)} spores measured by hand")
+        um_per_px = calibs[path][0]
+        expected = expected_calibration(calibs, path)
+        if expected and abs(um_per_px / expected - 1) > CALIB_TOLERANCE:
+            print(
+                f"  [WARNING] its calibration, {um_per_px:.4f} µm/px, is "
+                f"{um_per_px / expected:.2g}x the other photos' {expected:.4f} µm/px"
+            )
     if not measured:
         print("No measurements saved yet.", file=sys.stderr)
         return 1

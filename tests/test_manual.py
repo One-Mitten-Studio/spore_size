@@ -12,6 +12,9 @@ from spore_size.manual import (  # noqa: E402
     ZOOM_STEP,
     ImageMeasurement,
     build_window,
+    expected_calibration,
+    flag_saved_calibration,
+    instructions,
     keep_within,
     main,
     manual_csv_path,
@@ -196,3 +199,69 @@ def test_window_wheel_zoom_and_drag_pan(tmp_path):
     _key(fig, "-")
     assert (ax.get_xlim(), ax.get_ylim()) == full
     plt.close("all")
+
+
+def test_hand_calibration_far_from_other_photos_is_held_for_checking():
+    # the mistake that happened: a spore's two ends (77 px) clicked as the 0-100 scale
+    m = ImageMeasurement("a.jpg", expected_um_per_px=0.085)
+    assert m.click(1990, 1730) == "point"
+    assert m.click(2060, 1698) == "suspect"
+    assert m.um_per_px is None and m.calibrating
+    assert "CHECK CALIBRATION" in instructions(m)
+    m.click(1400, 2040)  # now the real 0 and 100 ticks
+    assert m.click(2300, 1240) == "calibrated"
+    assert m.um_per_px == pytest.approx(100 / 1204.2, rel=1e-3)
+    assert m.suspect_um_per_px is None and not m.calibrating
+
+
+def test_suspect_calibration_can_be_accepted():
+    m = ImageMeasurement("a.jpg", expected_um_per_px=0.085)
+    m.click(0, 0)
+    m.click(1000, 0)  # 0.1 µm/px: 18% off
+    assert m.accept_suspect_calibration()
+    assert m.um_per_px == pytest.approx(0.1) and m.calibration == "manual"
+    assert not m.accept_suspect_calibration()
+
+
+def test_without_other_photos_a_tiny_scale_span_is_held():
+    m = ImageMeasurement("a.jpg", diagonal_px=5000)
+    m.click(0, 0)
+    assert m.click(77, 0) == "suspect"
+    m.click(0, 0)
+    assert m.click(1200, 0) == "calibrated"
+
+
+def test_saved_bad_calibration_is_flagged_and_spores_rescale():
+    m = ImageMeasurement("a.jpg", um_per_px=1.307, calibration="manual")
+    _measure_one(m, [(0, 0), (77, 0)], [(38, -26), (38, 26)])
+    m.expected_um_per_px = 0.085
+    assert "15x" in flag_saved_calibration(m)
+    assert m.calibrating and m.suspect_um_per_px == 1.307
+    m.click(0, 0)
+    m.click(1176, 0)
+    (row,) = m.spore_rows()  # the saved clicks are kept, now in the right scale
+    assert row["length_um"] == pytest.approx(77 * 100 / 1176)
+
+
+def test_status_shows_last_spore_size():
+    m = ImageMeasurement("a.jpg", um_per_px=0.1, calibration="auto")
+    _measure_one(m, [(0, 0), (70, 0)], [(30, -25), (30, 25)])
+    assert "last spore 7.00 x 5.00 µm" in instructions(m)
+
+
+def test_report_warns_about_odd_calibration(tmp_path, capsys):
+    paths = [str(tmp_path / f"p{i}.jpg") for i in range(3)]
+    for path, um_per_px in zip(paths, [0.085, 1.307, 0.084], strict=True):
+        m = ImageMeasurement(path, um_per_px=um_per_px, calibration="manual")
+        _measure_one(m, [(0, 0), (70, 0)], [(30, -25), (30, 25)])
+        m.save_csv(manual_csv_path(path, str(tmp_path)))
+    assert main([*paths, "--out-dir", str(tmp_path), "--report-only", "--no-plots"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("[WARNING]") == 1 and "1.3070 µm/px" in out
+
+
+def test_expected_calibration_trusts_automatic_ones():
+    calibs = {"a": (0.085, "auto"), "b": (1.307, "manual"), "c": (0.084, "manual")}
+    assert expected_calibration(calibs, "c") == 0.085  # the auto one, not the bad one
+    assert expected_calibration(calibs, "a") == 0.085  # median of all, a bad one outvoted
+    assert expected_calibration({}, "a") is None
