@@ -107,6 +107,55 @@ def directory_labels(dirs: Sequence[str]) -> dict[str, str]:
     return labels
 
 
+def write_run_reports(
+    all_rows: list[Spore],
+    images: list[str],
+    out_dir: str,
+    sys_error_um: float,
+    no_plots: bool = False,
+) -> None:
+    """Write and print a run's reports: combined CSVs, summary and plots.
+
+    all_rows are the measured spores (each with "image"); images are all
+    images measured, in order, including any without spores.
+    """
+    dir_labels: dict[str, str] = {}
+    if all_rows:
+        combined_path = os.path.join(out_dir, "all_spores_combined.csv")
+        write_combined_csv(all_rows, combined_path)
+        print(f"\nCombined CSV: {combined_path}")
+
+        # one combined CSV per image directory, if images came from directories
+        dirs = sorted({os.path.dirname(r["image"]) for r in all_rows} - {""})
+        dir_labels = directory_labels(dirs)
+        for d, label in dir_labels.items():
+            rows = [r for r in all_rows if os.path.dirname(r["image"]) == d]
+            dir_path = os.path.join(out_dir, f"{label}_spores_combined.csv")
+            write_combined_csv(rows, dir_path)
+            print(f"  {d}: {dir_path}")
+
+    if images:
+        stats = summary_rows(all_rows, images=images, sys_error_um=sys_error_um)
+        summary_path = os.path.join(out_dir, "spore_summary.csv")
+        write_summary_csv(stats, summary_path)
+        print(f"\nSummary: {summary_path}")
+        print(
+            f"SD = spread of individual spores; stat = SEM = SD/sqrt(n); "
+            f"sys = {sys_error_um} um measurement limit (propagated for Q); "
+            f"total = sqrt(stat^2 + sys^2)\n"
+        )
+        print(format_table(stats))
+        print("\nFor publication:")
+        for r in stats:
+            if r["n_spores"]:
+                name = r["name"] if r["level"] == "image" else f"{r['name']} (total)"
+                print(f"  {name}: {r['publication']}")
+
+        if all_rows and not no_plots:
+            plot_paths = write_plots(all_rows, stats, out_dir, dir_labels, radius_um=sys_error_um)
+            print(f"\nPlots: {len(plot_paths)} written to {out_dir} (*_spore_plot.png)")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run spore-size on the given images; return the process exit code.
 
@@ -160,42 +209,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         all_rows.extend(kept)
 
-    if all_rows:
-        combined_path = os.path.join(args.out_dir, "all_spores_combined.csv")
-        write_combined_csv(all_rows, combined_path)
-        print(f"\nCombined CSV: {combined_path}")
-
-        # one combined CSV per image directory, if images came from directories
-        dirs = sorted({os.path.dirname(r["image"]) for r in all_rows} - {""})
-        dir_labels = directory_labels(dirs)
-        for d, label in dir_labels.items():
-            rows = [r for r in all_rows if os.path.dirname(r["image"]) == d]
-            dir_path = os.path.join(args.out_dir, f"{label}_spores_combined.csv")
-            write_combined_csv(rows, dir_path)
-            print(f"  {d}: {dir_path}")
-
     if processed:
-        stats = summary_rows(all_rows, images=processed, sys_error_um=args.sys_error_um)
-        summary_path = os.path.join(args.out_dir, "spore_summary.csv")
-        write_summary_csv(stats, summary_path)
-        print(f"\nSummary: {summary_path}")
-        print(
-            f"SD = spread of individual spores; stat = SEM = SD/sqrt(n); "
-            f"sys = {args.sys_error_um} um measurement limit (propagated for Q); "
-            f"total = sqrt(stat^2 + sys^2)\n"
-        )
-        print(format_table(stats))
-        print("\nFor publication:")
-        for r in stats:
-            if r["n_spores"]:
-                name = r["name"] if r["level"] == "image" else f"{r['name']} (total)"
-                print(f"  {name}: {r['publication']}")
-
-        if all_rows and not args.no_plots:
-            plot_paths = write_plots(
-                all_rows, stats, args.out_dir, dir_labels, radius_um=args.sys_error_um
-            )
-            print(f"\nPlots: {len(plot_paths)} written to {args.out_dir} (*_spore_plot.png)")
+        write_run_reports(all_rows, processed, args.out_dir, args.sys_error_um, args.no_plots)
 
     return 0 if processed else 1
 

@@ -82,6 +82,32 @@ measure a doubtful one.
 It also prints a one-line summary (mean +/- SD) per photo as it goes, and the
 summary table at the end.
 
+## Measuring by hand: `spore-measure`
+For photos the automatic detection can't handle (e.g. crowded gill-face
+mounts), measure spores by hand:
+
+    pip install -e ".[gui]"      # once: installs the Qt window toolkit
+    spore-measure photo1.jpg photo2.jpg --out-dir manual_results
+
+Each photo opens in a window; zoom and pan with the toolbar. For each spore,
+click the two ends of its length (red line), then the two sides of its
+width (blue line). The scale bar is calibrated automatically; if that fails
+(or press `c`), click its 0 and 100 ticks (`--ruler-ticks` if you click
+other marks). Keys: `u` / Backspace undo, `c` calibrate by hand, `n` next
+photo, `q` save and quit.
+
+Measurements are saved after every spore to
+`<photo>_manual_measurements.csv` (with the clicked points), and reopening a
+photo restores them, so you can stop and continue later. When you finish,
+the same reports as `spore-size` are written (`spore_summary.csv`, combined
+CSVs, plots), so hand and automatic measurements compare directly.
+`--report-only` rebuilds the reports from the saved measurements without
+opening any windows.
+
+Only measure spores lying flat in side view: focus up and down at the
+microscope -- a tilted spore's outline goes in and out of focus around its
+edge, and its length would be measured too short.
+
 ## Summary statistics
 `spore_summary.csv` has one row per photo, a total row for each directory
 (directly after its photos) and a final row for all spores. Directory and
@@ -169,6 +195,7 @@ saturation/brightness 0-255):
         plots.py         length vs width plots
         summary.py       run statistics (mean, SD, stat/sys/total errors) -> spore_summary.csv
         cli.py           `spore-size` command
+        manual.py        `spore-measure`: measuring spores by hand
     tests/               pytest suite (real micrograph + synthetic spores)
 
 ## Development

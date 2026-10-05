@@ -19,10 +19,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+gui = ["PySide6-Essentials"]
 dev = ["pytest", "black", "ruff", "mypy", "scipy-stubs"]
 
 [project.scripts]
 spore-size = "spore_size.cli:main"
+spore-measure = "spore_size.manual:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
