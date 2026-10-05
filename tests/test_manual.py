@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pytest  # noqa: E402
 from matplotlib.backend_bases import KeyEvent, MouseButton, MouseEvent  # noqa: E402
 
+from spore_size import manual  # noqa: E402
 from spore_size.manual import (  # noqa: E402
     ImageMeasurement,
     build_window,
@@ -120,3 +121,18 @@ def test_report_only_builds_reports(tmp_path, capsys):
     assert "2 spores measured by hand" in capsys.readouterr().out
     for name in ("spore_summary.csv", "all_spores_combined.csv", "all_spores_plot.png"):
         assert (out / name).exists()
+
+
+def test_qt_display_problem_reports_missing_xcb_cursor(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On X11 without libxcb-cursor, explain the fix instead of letting Qt abort."""
+    monkeypatch.setattr(manual.sys, "platform", "linux")
+    monkeypatch.delenv("QT_QPA_PLATFORM", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    monkeypatch.setattr(manual.ctypes.util, "find_library", lambda name: None)
+    problem = manual.qt_display_problem()
+    assert problem is not None and "libxcb-cursor0" in problem
+    monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    assert manual.qt_display_problem() is None
+    monkeypatch.setattr(manual.ctypes.util, "find_library", lambda name: "libxcb-cursor.so.0")
+    monkeypatch.delenv("WAYLAND_DISPLAY")
+    assert manual.qt_display_problem() is None

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import ctypes.util
 import os
 import sys
 from collections.abc import Sequence
@@ -340,6 +341,25 @@ def build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def qt_display_problem() -> str | None:
+    """Return why Qt can't open a window on this X11 display, or None if it should.
+
+    Qt 6.5+ aborts the whole process (no Python exception) when libxcb-cursor is
+    missing, so check for it before Qt starts.
+    """
+    platform = os.environ.get("QT_QPA_PLATFORM", "")
+    if not sys.platform.startswith("linux") or platform not in ("", "xcb"):
+        return None
+    if not platform and os.environ.get("WAYLAND_DISPLAY"):
+        return None
+    if ctypes.util.find_library("xcb-cursor"):
+        return None
+    return (
+        "spore-measure can't open a window: Qt needs the libxcb-cursor library.\n"
+        "Install it with: sudo apt install libxcb-cursor0"
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run spore-measure on the given images; return the process exit code."""
     from .cli import write_run_reports
@@ -357,6 +377,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "spore-measure needs a GUI toolkit: pip install -e '.[gui]'",
                 file=sys.stderr,
             )
+            return 1
+        problem = qt_display_problem()
+        if problem:
+            print(problem, file=sys.stderr)
             return 1
         for path in args.images:
             try:

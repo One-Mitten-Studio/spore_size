@@ -89,6 +89,9 @@ mounts), measure spores by hand:
     pip install -e ".[gui]"      # once: installs the Qt window toolkit
     spore-measure photo1.jpg photo2.jpg --out-dir manual_results
 
+On Linux with X11, Qt also needs a system library: `sudo apt install
+libxcb-cursor0` (spore-measure tells you if it is missing).
+
 Each photo opens in a window; zoom and pan with the toolbar. For each spore,
 click the two ends of its length (red line), then the two sides of its
 width (blue line). The scale bar is calibrated automatically; if that fails
