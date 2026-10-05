@@ -1,16 +1,20 @@
-"""Measure spores by hand: click the ends of each spore's length and width.
+"""Check automatic spore measurements and add more by hand.
 
-Each photo opens in a window (zoom and pan with the toolbar). For every
-spore, click the two ends of its length, then the two sides of its width.
-The scale bar is calibrated automatically as in spore-size; if that fails,
-click its 0 and 100 ticks instead. Measurements are saved after every spore
-(<photo>_manual_measurements.csv) and restored when a photo is reopened.
-The run's reports (combined CSVs, spore_summary.csv, plots) have the same
-format as spore-size's, so hand and automatic measurements compare
-directly.
+First spore-size's automatic analysis runs on all the photos (calibration,
+spore detection, size outliers judged per directory), unless --no-auto.
+Then each photo opens in a window with the automatic spores outlined, to
+check them: delete a wrong one (d with the pointer on it), and measure more
+by hand by clicking the two ends of a spore's length, then the two sides of
+its width. If the scale bar can't be found automatically, click its 0 and
+100 ticks instead. Measurements, automatic and by hand, are saved after
+every change (<photo>_manual_measurements.csv, with a source column) and
+restored when a photo is reopened, without rerunning the automatic
+analysis. The run's reports (combined CSVs, spore_summary.csv, plots) have
+the same format as spore-size's.
 
 Mouse wheel zooms about the pointer; drag with the right or middle button to pan.
-Keys: u / backspace undo, c calibrate by hand, n next photo, q save and quit.
+Keys: u / backspace undo, d delete the spore at the pointer, c calibrate by
+hand, n next photo, q save and quit.
 """
 
 from __future__ import annotations
@@ -26,9 +30,10 @@ from typing import Any, Final
 import cv2
 import numpy as np
 
-from ._types import Point, Spore
+from ._types import CvEllipse, Point, Spore
 from .calibration import calibrate_image
 from .errors import PhotoRejected
+from .measure import analyze_image, drop_outliers_by_directory
 from .summary import DEFAULT_SYS_ERROR_UM
 
 ZOOM_STEP: Final = 1.25  # view shrinks or grows by this factor per wheel step or +/- key
@@ -40,6 +45,8 @@ CALIB_TOLERANCE: Final = 0.15
 MIN_SCALE_FRACTION: Final = 0.05
 
 Limits = tuple[float, float]
+#: a spore's length ends, then its width sides
+SporePoints = tuple[Point, Point, Point, Point]
 
 CSV_FIELDS = [
     "spore_id",
@@ -58,6 +65,7 @@ CSV_FIELDS = [
     "width_y2",
     "um_per_px",
     "calibration",
+    "source",
 ]
 
 
@@ -66,10 +74,27 @@ def _distance(a: Point, b: Point) -> float:
     return float(np.hypot(a[0] - b[0], a[1] - b[1]))
 
 
-class ImageMeasurement:
-    """Hand measurements of one photo: calibration, spores and pending clicks.
+def ellipse_points(ellipse: CvEllipse) -> SporePoints:
+    """Return an OpenCV ellipse's major axis ends, then its minor axis ends.
 
-    Clicks build up a spore: two points for the length, two for the width.
+    These are the points a hand measurement would click, so an automatically
+    measured spore has the same length and width either way.
+    """
+    (cx, cy), (a, b), angle = ellipse
+    t = np.radians(angle)
+    ux, uy = np.cos(t), np.sin(t)  # direction of the first axis, a
+    ends_a = ((cx - ux * a / 2, cy - uy * a / 2), (cx + ux * a / 2, cy + uy * a / 2))
+    ends_b = ((cx + uy * b / 2, cy - ux * b / 2), (cx - uy * b / 2, cy + ux * b / 2))
+    (l1, l2), (w1, w2) = (ends_a, ends_b) if a >= b else (ends_b, ends_a)
+    pts = [(float(x), float(y)) for x, y in (l1, l2, w1, w2)]
+    return pts[0], pts[1], pts[2], pts[3]
+
+
+class ImageMeasurement:
+    """Measurements of one photo: calibration, spores and pending clicks.
+
+    Each spore has a source, "auto" (from spore-size's detection) or "manual".
+    Clicks build up a manual spore: two points for the length, two for the width.
     In calibration mode the next two clicks are the 0 and full-scale ticks
     of the scale bar instead. A calibration far from expected_um_per_px (the
     other photos' calibration), or spanning implausibly few pixels, is held as
@@ -92,7 +117,10 @@ class ImageMeasurement:
         self.calibration = calibration
         self.um_per_tick = um_per_tick
         self.ruler_ticks = ruler_ticks
-        self.spores: list[tuple[Point, Point, Point, Point]] = []
+        self.spores: list[SporePoints] = []
+        self.sources: list[str] = []  # "auto" or "manual", one per spore
+        # what undo reverses, newest last: ("add", index) or ("delete", index, points, source)
+        self.history: list[tuple[Any, ...]] = []
         self.pending: list[Point] = []
         self.calibrating = um_per_px is None
         self.expected_um_per_px = expected_um_per_px
@@ -153,23 +181,71 @@ class ImageMeasurement:
         if len(self.pending) < 4:
             return "point"
         p = self.pending
-        self.spores.append((p[0], p[1], p[2], p[3]))
+        self.add_spore((p[0], p[1], p[2], p[3]), "manual")
+        self.history.append(("add", len(self.spores) - 1))
         self.pending = []
         return "spore"
 
+    def add_spore(self, points: SporePoints, source: str) -> None:
+        """Add a finished spore."""
+        self.spores.append(points)
+        self.sources.append(source)
+
+    def spore_at(self, x: float, y: float) -> int | None:
+        """Return the index of the spore under (x, y), or None.
+
+        That is the spore whose centre is nearest, if (x, y) is within half its
+        length (at least 10 px) of the centre.
+        """
+        best, best_d = None, np.inf
+        for i, (l1, l2, _, _) in enumerate(self.spores):
+            centre = ((l1[0] + l2[0]) / 2, (l1[1] + l2[1]) / 2)
+            d = _distance(centre, (x, y))
+            if d <= max(_distance(l1, l2) / 2, 10.0) and d < best_d:
+                best, best_d = i, d
+        return best
+
+    def delete_at(self, x: float, y: float) -> bool:
+        """Delete the spore under (x, y); return False if there is none."""
+        i = self.spore_at(x, y)
+        if i is None:
+            return False
+        self.history.append(("delete", i, self.spores.pop(i), self.sources.pop(i)))
+        return True
+
     def undo(self) -> None:
-        """Remove the last pending point, or else the last finished spore."""
+        """Undo the last pending point, else the last spore added or deleted.
+
+        Without anything to undo from this session, a reopened photo's last
+        manual spore is removed.
+        """
         if self.pending:
             self.pending.pop()
-        elif self.spores and not self.calibrating:
+        elif self.calibrating:
+            return
+        elif self.history:
+            action = self.history.pop()
+            if action[0] == "add":
+                del self.spores[action[1]], self.sources[action[1]]
+            else:
+                _, i, points, source = action
+                self.spores.insert(i, points)
+                self.sources.insert(i, source)
+        elif self.sources and self.sources[-1] == "manual":
             self.spores.pop()
+            self.sources.pop()
+
+    def counts(self) -> tuple[int, int]:
+        """Return the number of (automatic, manual) spores."""
+        n_auto = self.sources.count("auto")
+        return n_auto, len(self.sources) - n_auto
 
     def spore_rows(self) -> list[Spore]:
         """Return the spores as rows in microns (length >= width), like spore-size."""
         if self.um_per_px is None:
             return []
         rows = []
-        for l1, l2, w1, w2 in self.spores:
+        for (l1, l2, w1, w2), source in zip(self.spores, self.sources, strict=True):
             a, b = _distance(l1, l2), _distance(w1, w2)
             length_px, width_px = max(a, b), min(a, b)
             length_um, width_um = length_px * self.um_per_px, width_px * self.um_per_px
@@ -182,6 +258,7 @@ class ImageMeasurement:
                     "width_um": width_um,
                     "Q_ratio": length_um / width_um if width_um > 0 else np.nan,
                     "points": (l1, l2, w1, w2),
+                    "source": source,
                 }
             )
         return rows
@@ -201,9 +278,10 @@ class ImageMeasurement:
                         f"{r['Q_ratio']:.2f}",
                         f"{r['length_px']:.1f}",
                         f"{r['width_px']:.1f}",
-                        *(f"{v:.1f}" for pt in (l1, l2, w1, w2) for v in pt),
+                        *(f"{v:.2f}" for pt in (l1, l2, w1, w2) for v in pt),
                         f"{self.um_per_px:.6f}",
                         self.calibration,
+                        r["source"],
                     ]
                 )
 
@@ -211,7 +289,7 @@ class ImageMeasurement:
     def load_csv(
         cls, path: str, csv_path: str, um_per_tick: float = 1.0, ruler_ticks: float = 100.0
     ) -> ImageMeasurement:
-        """Restore a photo's saved hand measurements."""
+        """Restore a photo's saved measurements (files without a source are all manual)."""
         with open(csv_path, newline="") as f:
             rows = list(csv.DictReader(f))
         m = cls(path, um_per_tick=um_per_tick, ruler_ticks=ruler_ticks)
@@ -225,7 +303,7 @@ class ImageMeasurement:
                 for k in ("length", "width")
                 for i in (1, 2)
             ]
-            m.spores.append((pts[0], pts[1], pts[2], pts[3]))
+            m.add_spore((pts[0], pts[1], pts[2], pts[3]), r.get("source") or "manual")
         return m
 
 
@@ -235,16 +313,48 @@ def manual_csv_path(path: str, out_dir: str) -> str:
     return os.path.join(out_dir, f"{stem}_manual_measurements.csv")
 
 
+AutoResult = tuple[float, list[Spore]]  # µm/px and kept spores of one photo
+
+
+def run_auto(paths: Sequence[str], out_dir: str, um_per_tick: float) -> dict[str, AutoResult]:
+    """Run spore-size's automatic analysis on photos, as spore-size does.
+
+    Size outliers are judged with each directory's spores pooled. Photos the
+    analysis rejects are reported and left out; they can still be measured by hand.
+    """
+    analyzed: dict[str, AutoResult] = {}
+    for path in paths:
+        try:
+            calib, spores = analyze_image(path, out_dir, um_per_tick=um_per_tick, save_debug=False)
+            analyzed[path] = (calib["microns_per_px"], spores)
+        except PhotoRejected as e:
+            print(f"{os.path.basename(path)}: no automatic spores ({e})")
+        except Exception as e:
+            print(f"[FAILED] automatic analysis of {path}: {e}", file=sys.stderr)
+    kept, removed = drop_outliers_by_directory({p: spores for p, (_, spores) in analyzed.items()})
+    for d, n_removed in removed.items():
+        if n_removed:
+            print(f"{d or '.'}: {n_removed} automatic size outlier(s) removed")
+    for path, (um_per_px, _) in analyzed.items():
+        analyzed[path] = (um_per_px, kept[path])
+        print(f"{os.path.basename(path)}: {len(kept[path])} automatic spores")
+    return analyzed
+
+
 def open_measurement(
     path: str,
     out_dir: str,
     um_per_tick: float,
     ruler_ticks: float,
     expected_um_per_px: float | None = None,
+    auto: AutoResult | None = None,
 ) -> ImageMeasurement:
-    """Load a photo's saved measurements, or start new ones with auto calibration.
+    """Load a photo's saved measurements, or start new ones.
 
-    expected_um_per_px (the other photos' calibration) is what a hand
+    New ones start from auto (the automatic calibration and spores) if given,
+    else with the scale bar calibrated automatically and no spores. A photo
+    with a saved file never gets automatic spores again, so deleted ones stay
+    deleted. expected_um_per_px (the other photos' calibration) is what a hand
     calibration of this photo is checked against.
     """
     img = cv2.imread(path)
@@ -252,7 +362,8 @@ def open_measurement(
         raise RuntimeError(f"Could not read image: {path}")
     diagonal_px = float(np.hypot(*img.shape[:2]))
     csv_path = manual_csv_path(path, out_dir)
-    if os.path.exists(csv_path):
+    saved = os.path.exists(csv_path)
+    if saved:
         m = ImageMeasurement.load_csv(path, csv_path, um_per_tick, ruler_ticks)
         if m.um_per_px is not None:
             m.expected_um_per_px, m.diagonal_px = expected_um_per_px, diagonal_px
@@ -264,6 +375,14 @@ def open_measurement(
         expected_um_per_px=expected_um_per_px,
         diagonal_px=diagonal_px,
     )
+    if auto is not None:
+        m.um_per_px, spores = auto
+        m.calibration = "auto"
+        m.calibrating = False
+        if not saved:
+            for spore in spores:
+                m.add_spore(ellipse_points(spore["ellipse"]), "auto")
+        return m
     try:
         calib = calibrate_image(img, microns_per_tick=um_per_tick)
         m.um_per_px = calib["microns_per_px"]
@@ -278,7 +397,7 @@ def instructions(m: ImageMeasurement) -> str:
     """Return the status lines shown above the photo: the next step, then the controls."""
     controls = (
         "wheel zoom   right/middle drag pan   h home view   |   "
-        "u undo   c calibrate   n next photo   q save & quit"
+        "u undo   d delete spore at pointer   c calibrate   n next photo   q save & quit"
     )
     if m.calibrating and m.suspect_um_per_px is not None and not m.pending:
         return (
@@ -290,15 +409,18 @@ def instructions(m: ImageMeasurement) -> str:
         step = "the 0 tick" if not m.pending else f"the {m.ruler_ticks:g} tick"
         return f"CALIBRATE FIRST: click {step} of the scale bar (not a spore)\n{controls}"
     steps = ["length: one end", "length: other end", "width: one side", "width: other side"]
-    n = len(m.spores) + 1
+    n_auto, n_manual = m.counts()
     calib = f"{m.um_per_px:.4f} µm/px ({m.calibration})"
-    rows = m.spore_rows()
+    rows = [r for r in m.spore_rows() if r["source"] == "manual"]
     last = (
         f"      last spore {rows[-1]['length_um']:.2f} x {rows[-1]['width_um']:.2f} µm"
-        if rows
+        if m.history and m.history[-1][0] == "add" and rows
         else ""
     )
-    return f"Spore {n} {steps[len(m.pending)]}      {calib}{last}\n{controls}"
+    return (
+        f"{n_auto} automatic (orange) + {n_manual} by hand      {calib}{last}\n"
+        f"Next spore by hand, {steps[len(m.pending)]}\n{controls}"
+    )
 
 
 def keep_within(lim: Limits, full: Limits) -> Limits:
@@ -365,10 +487,18 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
         for a in artists:
             a.remove()
         artists.clear()
-        for i, (l1, l2, w1, w2) in enumerate(m.spores, 1):
-            artists.extend(ax.plot(*zip(l1, l2, strict=True), "-", color="red", lw=1.2))
-            artists.extend(ax.plot(*zip(w1, w2, strict=True), "-", color="#1f4fff", lw=1.2))
+        t = np.linspace(0, 2 * np.pi, 60)
+        for i, ((l1, l2, w1, w2), source) in enumerate(zip(m.spores, m.sources, strict=True), 1):
             cx, cy = (l1[0] + l2[0]) / 2, (l1[1] + l2[1]) / 2
+            if source == "auto":  # the fitted ellipse, through its axis ends
+                ux, uy = (l2[0] - l1[0]) / 2, (l2[1] - l1[1]) / 2
+                vx, vy = (w2[0] - w1[0]) / 2, (w2[1] - w1[1]) / 2
+                ex = cx + ux * np.cos(t) + vx * np.sin(t)
+                ey = cy + uy * np.cos(t) + vy * np.sin(t)
+                artists.extend(ax.plot(ex, ey, "-", color="orange", lw=1.2))
+            else:
+                artists.extend(ax.plot(*zip(l1, l2, strict=True), "-", color="red", lw=1.2))
+                artists.extend(ax.plot(*zip(w1, w2, strict=True), "-", color="#1f4fff", lw=1.2))
             label = ax.text(cx + 15, cy - 15, str(i), color="black", fontsize=9)
             label.set_bbox({"facecolor": "white", "alpha": 0.75, "linewidth": 0, "pad": 1})
             artists.append(label)
@@ -435,6 +565,9 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
         if event.key in ("u", "backspace"):
             m.undo()
             m.save_csv(csv_path)
+        elif event.key == "d":
+            if event.inaxes is ax and m.delete_at(event.xdata, event.ydata):
+                m.save_csv(csv_path)
         elif event.key == "c":
             m.start_calibration()
         elif event.key == "a":
@@ -470,7 +603,8 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the command-line argument parser."""
     ap = argparse.ArgumentParser(
         prog="spore-measure",
-        description="Measure spore length x width (um) by hand on micrographs with an "
+        description="Check automatic spore measurements and measure more by hand "
+        "(length x width, um) on micrographs with an "
         "ocular-micrometer scale bar.",
     )
     ap.add_argument("images", nargs="+", help="image files to measure")
@@ -496,6 +630,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_SYS_ERROR_UM,
         help="systematic error of a length measurement in um (default: %(default)s)",
+    )
+    ap.add_argument(
+        "--no-auto",
+        action="store_true",
+        help="measure by hand only, without spore-size's automatic spores",
     )
     ap.add_argument(
         "--report-only",
@@ -588,11 +727,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(problem, file=sys.stderr)
             return 1
         calibs = saved_calibrations(args.images, args.out_dir)
+        auto: dict[str, AutoResult] = {}
+        if not args.no_auto:
+            # photos with saved measurements keep them; the rest are analysed together,
+            # so that size outliers are judged per directory as spore-size does
+            new = [p for p in args.images if not os.path.exists(manual_csv_path(p, args.out_dir))]
+            if new:
+                print(f"Automatic analysis of {len(new)} photo(s)...")
+                auto = run_auto(new, args.out_dir, args.um_per_tick)
+            for path, (um_per_px, _) in auto.items():
+                calibs.setdefault(path, (um_per_px, "auto"))
         for path in args.images:
             expected = expected_calibration(calibs, path)
             try:
                 m = open_measurement(
-                    path, args.out_dir, args.um_per_tick, args.ruler_ticks, expected
+                    path,
+                    args.out_dir,
+                    args.um_per_tick,
+                    args.ruler_ticks,
+                    expected,
+                    auto.get(path),
                 )
             except Exception as e:
                 print(f"[FAILED] {path}: {e}", file=sys.stderr)
@@ -613,10 +767,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         csv_path = manual_csv_path(path, args.out_dir)
         if not os.path.exists(csv_path):
             continue
-        rows = ImageMeasurement.load_csv(path, csv_path).spore_rows()
+        m = ImageMeasurement.load_csv(path, csv_path)
+        rows = m.spore_rows()
         measured.append(path)
         all_rows.extend(rows)
-        print(f"{os.path.basename(path)}: {len(rows)} spores measured by hand")
+        n_auto, n_manual = m.counts()
+        print(f"{os.path.basename(path)}: {n_auto} automatic + {n_manual} by hand")
+        if path not in calibs:
+            continue
         um_per_px = calibs[path][0]
         expected = expected_calibration(calibs, path)
         if expected and abs(um_per_px / expected - 1) > CALIB_TOLERANCE:

@@ -82,39 +82,53 @@ measure a doubtful one.
 It also prints a one-line summary (mean +/- SD) per photo as it goes, and the
 summary table at the end.
 
-## Measuring by hand: `spore-measure`
-For photos the automatic detection can't handle (e.g. crowded gill-face
-mounts), measure spores by hand:
+## Checking and adding to the automatic results: `spore-measure`
+`spore-measure` runs the same automatic analysis as `spore-size`, then opens
+each photo with the automatic spores outlined, so you can check them, delete
+wrong ones and measure more by hand -- e.g. in crowded gill-face mounts, or
+photos the automatic detection rejects:
 
     pip install -e ".[gui]"      # once: installs the Qt window toolkit
-    spore-measure photo1.jpg photo2.jpg --out-dir manual_results
+    spore-measure photo1.jpg photo2.jpg --out-dir measure_results
 
 On Linux with X11, Qt also needs a system library: `sudo apt install
 libxcb-cursor0` (spore-measure tells you if it is missing).
 
-Each photo opens in a window. Zoom in until the spore is large enough to
-click its edges accurately: the mouse wheel (or `+` / `-`) zooms about the
-pointer, dragging with the right or middle button pans, and `h` returns to
-the whole photo. For each spore, click the two ends of its length (red line), then the two sides of its
-width (blue line). The scale bar is calibrated automatically; if that fails
-(or press `c`), click its 0 and 100 ticks (`--ruler-ticks` if you click
-other marks). While the photo needs calibrating, the status lines are red;
-clicks then set the scale, not a spore. A hand calibration more than 15%
-off the run's automatic calibrations (or, without any, the other photos')
-is held until you click the ticks again or press `a` to accept it, and a
-saved one is flagged when the photo is reopened, so clicking a spore as the
-scale by mistake can't silently inflate every measurement. The status line
-shows each spore's size in µm as you finish it. Keys: `u` / Backspace undo,
-`c` calibrate by hand, `a` accept a flagged calibration, `n` next photo,
-`q` save and quit.
+First the automatic analysis runs on all the photos, exactly as in
+`spore-size` (size outliers judged per directory). A photo it rejects
+(e.g. a cluttered field, or a scale bar it can't read) is reported and still
+opens, with no automatic spores, for measuring by hand. `--no-auto` skips
+the automatic analysis: hand measuring only.
 
-Measurements are saved after every spore to
-`<photo>_manual_measurements.csv` (with the clicked points), and reopening a
-photo restores them, so you can stop and continue later. When you finish,
-the same reports as `spore-size` are written (`spore_summary.csv`, combined
-CSVs, plots), so hand and automatic measurements compare directly.
-`--report-only` rebuilds the reports from the saved measurements without
-opening any windows.
+In each photo's window the automatic spores are orange ellipses, numbered.
+Zoom in to check them: the mouse wheel (or `+` / `-`) zooms about the
+pointer, dragging with the right or middle button pans, and `h` returns to
+the whole photo. To delete a wrong one, point at it and press `d`. To
+measure a spore by hand, click the two ends of its length (red line), then
+the two sides of its width (blue line); the status line shows its size in
+µm. When a photo looks right, press `n` for the next one.
+
+The scale bar is calibrated automatically; if that fails (or press `c`),
+click its 0 and 100 ticks (`--ruler-ticks` if you click other marks). While
+the photo needs calibrating, the status lines are red; clicks then set the
+scale, not a spore. A hand calibration more than 15% off the run's
+automatic calibrations (or, without any, the other photos') is held until
+you click the ticks again or press `a` to accept it, and a saved one is
+flagged when the photo is reopened, so clicking a spore as the scale by
+mistake can't silently inflate every measurement.
+
+Keys: `u` / Backspace undo (the last point, spore added or spore deleted),
+`d` delete the spore at the pointer, `c` calibrate by hand, `a` accept a
+flagged calibration, `n` next photo, `q` save and quit.
+
+Every change is saved to `<photo>_manual_measurements.csv`, one row per
+spore with its end points and a `source` column (`auto` or `manual`).
+Reopening a photo restores it without rerunning the automatic analysis, so
+deleted spores stay deleted and you can stop and continue later. When you
+finish, the same reports as `spore-size` are written (`spore_summary.csv`,
+combined CSVs, plots) from all the spores, automatic and by hand, and the
+terminal lists how many of each each photo has. `--report-only` rebuilds
+the reports from the saved measurements without opening any windows.
 
 Only measure spores lying flat in side view: focus up and down at the
 microscope -- a tilted spore's outline goes in and out of focus around its
@@ -207,7 +221,7 @@ saturation/brightness 0-255):
         plots.py         length vs width plots
         summary.py       run statistics (mean, SD, stat/sys/total errors) -> spore_summary.csv
         cli.py           `spore-size` command
-        manual.py        `spore-measure`: measuring spores by hand
+        manual.py        `spore-measure`: checking automatic spores, measuring more by hand
     tests/               pytest suite (real micrograph + synthetic spores)
 
 ## Development

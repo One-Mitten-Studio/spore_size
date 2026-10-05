@@ -1,9 +1,12 @@
 import csv
+import shutil
 
 import matplotlib
 
 matplotlib.use("Agg")  # no display needed
+import cv2  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
+import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 from matplotlib.backend_bases import KeyEvent, MouseButton, MouseEvent  # noqa: E402
 
@@ -12,6 +15,7 @@ from spore_size.manual import (  # noqa: E402
     ZOOM_STEP,
     ImageMeasurement,
     build_window,
+    ellipse_points,
     expected_calibration,
     flag_saved_calibration,
     instructions,
@@ -19,6 +23,7 @@ from spore_size.manual import (  # noqa: E402
     main,
     manual_csv_path,
     open_measurement,
+    run_auto,
     zoom_view,
 )
 
@@ -124,7 +129,7 @@ def test_report_only_builds_reports(tmp_path, capsys):
     _measure_one(m, [(0, 0), (66, 0)], [(30, -23), (30, 23)])
     m.save_csv(manual_csv_path(str(SAMPLE), str(out)))
     assert main([str(SAMPLE), "--out-dir", str(out), "--report-only"]) == 0
-    assert "2 spores measured by hand" in capsys.readouterr().out
+    assert "0 automatic + 2 by hand" in capsys.readouterr().out
     for name in ("spore_summary.csv", "all_spores_combined.csv", "all_spores_plot.png"):
         assert (out / name).exists()
 
@@ -173,7 +178,7 @@ def test_window_wheel_zoom_and_drag_pan(tmp_path):
     fig, _ = build_window(m, str(tmp_path / "s_manual_measurements.csv"))
     ax = fig.axes[0]
     full = ax.get_xlim(), ax.get_ylim()
-    assert "Spore 1" in fig.texts[0].get_text()  # status lines sit above the photo
+    assert "Next spore by hand" in fig.texts[0].get_text()  # status lines sit above the photo
     assert fig.texts[0].get_position()[1] > ax.get_position().y1
 
     px, py = ax.transData.transform((800, 600))
@@ -265,3 +270,102 @@ def test_expected_calibration_trusts_automatic_ones():
     assert expected_calibration(calibs, "c") == 0.085  # the auto one, not the bad one
     assert expected_calibration(calibs, "a") == 0.085  # median of all, a bad one outvoted
     assert expected_calibration({}, "a") is None
+
+
+@pytest.mark.parametrize("axes", [(60.0, 40.0), (40.0, 60.0)])
+@pytest.mark.parametrize("angle", [0.0, 30.0, 117.0])
+def test_ellipse_points_are_the_axis_ends(axes, angle):
+    ellipse = ((200.0, 150.0), axes, angle)
+    l1, l2, w1, w2 = ellipse_points(ellipse)
+    assert np.hypot(l2[0] - l1[0], l2[1] - l1[1]) == pytest.approx(60)
+    assert np.hypot(w2[0] - w1[0], w2[1] - w1[1]) == pytest.approx(40)
+    # each end lies on the outline OpenCV draws for this ellipse
+    poly = np.asarray(
+        cv2.ellipse2Poly((200, 150), (int(axes[0] / 2), int(axes[1] / 2)), int(angle), 0, 360, 1)
+    )
+    for x, y in (l1, l2, w1, w2):
+        assert np.min(np.hypot(poly[:, 0] - x, poly[:, 1] - y)) < 1.0
+
+
+def _auto_spore(m, centre, length=70.0, width=50.0):
+    cx, cy = centre
+    m.add_spore(
+        ((cx - length / 2, cy), (cx + length / 2, cy), (cx, cy - width / 2), (cx, cy + width / 2)),
+        "auto",
+    )
+
+
+def test_delete_spore_at_pointer_and_undo_it():
+    m = ImageMeasurement("a.jpg", um_per_px=0.1, calibration="auto")
+    _auto_spore(m, (100, 100))
+    _auto_spore(m, (300, 100))
+    assert not m.delete_at(200, 100)  # between spores: nothing
+    assert m.delete_at(310, 105)
+    assert m.counts() == (1, 0)
+    _measure_one(m, [(500, 500), (570, 500)], [(530, 475), (530, 525)])
+    assert m.counts() == (1, 1)
+    m.undo()  # the hand spore
+    m.undo()  # the deletion
+    assert m.counts() == (2, 0) and m.spores[1][0] == (265.0, 100.0)
+    m.undo()  # nothing left to undo: automatic spores are never removed by undo
+    assert m.counts() == (2, 0)
+
+
+def test_csv_keeps_sources_and_reads_old_files_as_manual(tmp_path):
+    m = ImageMeasurement("a.jpg", um_per_px=0.1, calibration="auto")
+    _auto_spore(m, (100, 100))
+    _measure_one(m, [(500, 500), (570, 500)], [(530, 475), (530, 525)])
+    csv_path = str(tmp_path / "a_manual_measurements.csv")
+    m.save_csv(csv_path)
+    assert ImageMeasurement.load_csv("a.jpg", csv_path).sources == ["auto", "manual"]
+    with open(csv_path) as f:  # a file from before the source column
+        rows = [line.rsplit(",", 1)[0] for line in f.read().splitlines()]
+    with open(csv_path, "w") as f:
+        f.write("\n".join(rows) + "\n")
+    assert ImageMeasurement.load_csv("a.jpg", csv_path).sources == ["manual", "manual"]
+
+
+def test_open_with_auto_result_adds_spores_once(tmp_path):
+    spores = [{"ellipse": ((100.0, 100.0), (50.0, 70.0), 20.0)}]
+    m = open_measurement(str(SAMPLE), str(tmp_path), 1.0, 100, auto=(0.08, spores))
+    assert m.calibration == "auto" and m.um_per_px == 0.08 and m.counts() == (1, 0)
+    (row,) = m.spore_rows()
+    assert (row["length_px"], row["width_px"]) == pytest.approx((70, 50))
+    m.delete_at(100, 100)
+    m.save_csv(manual_csv_path(str(SAMPLE), str(tmp_path)))  # all deleted, file saved
+    m = open_measurement(str(SAMPLE), str(tmp_path), 1.0, 100, auto=(0.08, spores))
+    assert m.counts() == (0, 0)  # deleted automatic spores stay deleted
+
+
+def test_spore_measure_starts_from_the_same_spores_as_spore_size(tmp_path, monkeypatch):
+    from spore_size.cli import main as spore_size_main
+
+    photo_dir = tmp_path / "inat1"
+    photo_dir.mkdir()
+    photo = str(photo_dir / "sample.jpg")
+    shutil.copy(SAMPLE, photo)
+    assert (
+        spore_size_main([photo, "--out-dir", str(tmp_path / "auto"), "--no-plots", "--no-debug"])
+        == 0
+    )
+    with open(tmp_path / "auto" / "all_spores_combined.csv") as f:
+        expected = [(float(r["length_um"]), float(r["width_um"])) for r in csv.DictReader(f)]
+
+    # accept every photo as it opens (n), without a display
+    monkeypatch.setattr(matplotlib, "use", lambda backend: None)
+    monkeypatch.setattr(manual, "qt_display_problem", lambda: None)
+    monkeypatch.setattr(manual, "measure_window", lambda m, csv_path: m.save_csv(csv_path) or True)
+    out = tmp_path / "measure"
+    assert main([photo, "--out-dir", str(out), "--no-plots"]) == 0
+    with open(out / "all_spores_combined.csv") as f:
+        got = [(float(r["length_um"]), float(r["width_um"])) for r in csv.DictReader(f)]
+    assert len(expected) >= 8
+    assert np.array(got) == pytest.approx(np.array(expected), abs=0.011)  # 2-decimal rounding
+
+
+def test_run_auto_reports_rejected_photos(tmp_path, capsys):
+    blank = str(tmp_path / "blank.jpg")
+    cv2.imwrite(blank, np.full((600, 800, 3), 255, np.uint8))
+    result = run_auto([str(SAMPLE), blank], str(tmp_path), 1.0)
+    assert list(result) == [str(SAMPLE)]
+    assert "blank.jpg: no automatic spores" in capsys.readouterr().out
