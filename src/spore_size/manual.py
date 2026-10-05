@@ -9,6 +9,7 @@ The run's reports (combined CSVs, spore_summary.csv, plots) have the same
 format as spore-size's, so hand and automatic measurements compare
 directly.
 
+Mouse wheel zooms about the pointer; drag with the right or middle button to pan.
 Keys: u / backspace undo, c calibrate by hand, n next photo, q save and quit.
 """
 
@@ -20,7 +21,7 @@ import ctypes.util
 import os
 import sys
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Final
 
 import cv2
 import numpy as np
@@ -29,6 +30,11 @@ from ._types import Point, Spore
 from .calibration import calibrate_image
 from .errors import PhotoRejected
 from .summary import DEFAULT_SYS_ERROR_UM
+
+ZOOM_STEP: Final = 1.25  # view shrinks or grows by this factor per wheel step or +/- key
+MIN_VIEW_PX: Final = 20.0  # never zoom in further than this many image pixels across
+
+Limits = tuple[float, float]
 
 CSV_FIELDS = [
     "spore_id",
@@ -209,15 +215,47 @@ def open_measurement(
 
 
 def instructions(m: ImageMeasurement) -> str:
-    """Return the status line shown above the photo."""
-    keys = "u undo   c calibrate   n next photo   q save & quit"
+    """Return the two status lines shown above the photo: the next step, then the controls."""
+    controls = (
+        "wheel zoom   right/middle drag pan   h home view   |   "
+        "u undo   c calibrate   n next photo   q save & quit"
+    )
     if m.calibrating:
         step = "the 0 tick" if not m.pending else f"the {m.ruler_ticks:g} tick"
-        return f"Calibrate: click {step} of the scale bar      ({keys})"
+        return f"Calibrate: click {step} of the scale bar\n{controls}"
     steps = ["length: one end", "length: other end", "width: one side", "width: other side"]
     n = len(m.spores) + 1
     calib = f"{m.um_per_px:.4f} µm/px ({m.calibration})"
-    return f"Spore {n} {steps[len(m.pending)]}   |   {calib}   |   {keys}"
+    return f"Spore {n} {steps[len(m.pending)]}      {calib}\n{controls}"
+
+
+def keep_within(lim: Limits, full: Limits) -> Limits:
+    """Shift an axis range, without resizing it, so it lies inside the full range.
+
+    Works for inverted ranges too (an image's y axis runs top to bottom).
+    """
+    lo, hi = sorted(lim)
+    full_lo, full_hi = sorted(full)
+    shift = full_lo - lo if lo < full_lo else (full_hi - hi if hi > full_hi else 0.0)
+    return lim[0] + shift, lim[1] + shift
+
+
+def zoom_view(
+    xlim: Limits, ylim: Limits, x: float, y: float, factor: float, full_x: Limits, full_y: Limits
+) -> tuple[Limits, Limits]:
+    """Return the view zoomed about (x, y); factor < 1 zooms in.
+
+    The point under the pointer stays put. Zooming out stops at the whole photo,
+    zooming in at MIN_VIEW_PX image pixels across.
+    """
+    new_x = (x + (xlim[0] - x) * factor, x + (xlim[1] - x) * factor)
+    new_y = (y + (ylim[0] - y) * factor, y + (ylim[1] - y) * factor)
+    span_x, span_y = abs(new_x[1] - new_x[0]), abs(new_y[1] - new_y[0])
+    if span_x >= abs(full_x[1] - full_x[0]) or span_y >= abs(full_y[1] - full_y[0]):
+        return full_x, full_y
+    if min(span_x, span_y) < MIN_VIEW_PX:
+        return xlim, ylim
+    return keep_within(new_x, full_x), keep_within(new_y, full_y)
 
 
 def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, bool]]:
@@ -227,9 +265,12 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
     """
     import matplotlib.pyplot as plt
 
-    # free c, backspace and q from matplotlib's default keys for our own use
+    # free c, backspace and q from matplotlib's default keys for our own use, and
+    # turn off keys that would put a log scale or grid on the photo
     plt.rcParams["keymap.back"] = ["left"]
     plt.rcParams["keymap.quit"] = ["ctrl+w", "cmd+w"]
+    for keymap in ("keymap.xscale", "keymap.yscale", "keymap.grid", "keymap.grid_minor"):
+        plt.rcParams[keymap] = []
 
     bgr = cv2.imread(m.path)
     if bgr is None:
@@ -239,9 +280,13 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
     fig.canvas.manager.set_window_title(f"spore-measure: {m.path}")  # type: ignore[union-attr]
     ax.imshow(img)
     ax.set_axis_off()
-    fig.tight_layout()
+    # leave a band at the top for the status lines, which tight_layout would not
+    fig.subplots_adjust(left=0.005, right=0.995, bottom=0.005, top=0.93)
+    status = fig.text(0.01, 0.995, "", fontsize=10, va="top", ha="left", linespacing=1.6)
+    full_x, full_y = ax.get_xlim(), ax.get_ylim()
     artists: list[Any] = []
     state = {"quit": False}
+    drag: dict[str, Any] = {}  # pan in progress: start pixel and start view
 
     def redraw() -> None:
         """Redraw all spores and pending points."""
@@ -259,20 +304,60 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
             xs, ys = zip(*m.pending, strict=True)
             colour = "lime" if m.calibrating else ("red" if len(m.pending) <= 2 else "#1f4fff")
             artists.extend(ax.plot(xs, ys, "+", color=colour, ms=12, mew=1.5))
-        ax.set_title(instructions(m), fontsize=9, loc="left")
+        status.set_text(instructions(m))
         fig.canvas.draw_idle()
 
+    def zoom(x: float, y: float, factor: float) -> None:
+        """Zoom the view about (x, y)."""
+        xlim, ylim = zoom_view(ax.get_xlim(), ax.get_ylim(), x, y, factor, full_x, full_y)
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        fig.canvas.draw_idle()
+
+    def on_scroll(event: Any) -> None:
+        """Zoom in on wheel up, out on wheel down, about the pointer."""
+        if event.inaxes is ax:
+            zoom(event.xdata, event.ydata, 1 / ZOOM_STEP if event.step > 0 else ZOOM_STEP)
+
     def on_click(event: Any) -> None:
-        """Add a point on a plain left click (not while zooming or panning)."""
+        """Start a pan on a right/middle press; add a point on a plain left click."""
         toolbar = fig.canvas.toolbar
-        if event.inaxes is not ax or event.button != 1 or (toolbar and toolbar.mode != ""):
+        if event.inaxes is not ax or (toolbar and toolbar.mode != ""):
+            return
+        if event.button in (2, 3):
+            drag.update(x=event.x, y=event.y, xlim=ax.get_xlim(), ylim=ax.get_ylim())
+            return
+        if event.button != 1:
             return
         if m.click(event.xdata, event.ydata) in ("spore", "calibrated"):
             m.save_csv(csv_path)
         redraw()
 
+    def on_motion(event: Any) -> None:
+        """Move the view with the pointer while panning."""
+        if not drag:
+            return
+        bbox = ax.bbox
+        (x0, x1), (y0, y1) = drag["xlim"], drag["ylim"]
+        dx = (event.x - drag["x"]) * (x1 - x0) / bbox.width
+        dy = (event.y - drag["y"]) * (y1 - y0) / bbox.height
+        ax.set_xlim(keep_within((x0 - dx, x1 - dx), full_x))
+        ax.set_ylim(keep_within((y0 - dy, y1 - dy), full_y))
+        fig.canvas.draw_idle()
+
+    def on_release(event: Any) -> None:
+        """End a pan."""
+        drag.clear()
+
     def on_key(event: Any) -> None:
-        """Handle undo, calibrate, next and quit keys."""
+        """Handle zoom, undo, calibrate, next and quit keys."""
+        if event.key in ("+", "=", "-"):
+            if event.inaxes is ax:
+                x, y = event.xdata, event.ydata
+            else:
+                x, y = sum(ax.get_xlim()) / 2, sum(ax.get_ylim()) / 2
+            zoom(x, y, ZOOM_STEP if event.key == "-" else 1 / ZOOM_STEP)
+            return
         if event.key in ("u", "backspace"):
             m.undo()
             m.save_csv(csv_path)
@@ -286,6 +371,9 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
 
     fig.canvas.mpl_connect("button_press_event", on_click)
     fig.canvas.mpl_connect("key_press_event", on_key)
+    fig.canvas.mpl_connect("scroll_event", on_scroll)
+    fig.canvas.mpl_connect("motion_notify_event", on_motion)
+    fig.canvas.mpl_connect("button_release_event", on_release)
     redraw()
     return fig, state
 

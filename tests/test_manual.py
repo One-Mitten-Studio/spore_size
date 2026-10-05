@@ -9,11 +9,14 @@ from matplotlib.backend_bases import KeyEvent, MouseButton, MouseEvent  # noqa: 
 
 from spore_size import manual  # noqa: E402
 from spore_size.manual import (  # noqa: E402
+    ZOOM_STEP,
     ImageMeasurement,
     build_window,
+    keep_within,
     main,
     manual_csv_path,
     open_measurement,
+    zoom_view,
 )
 
 from conftest import SAMPLE, SAMPLE_PX_PER_TICK  # noqa: E402
@@ -136,3 +139,60 @@ def test_qt_display_problem_reports_missing_xcb_cursor(monkeypatch: pytest.Monke
     monkeypatch.setattr(manual.ctypes.util, "find_library", lambda name: "libxcb-cursor.so.0")
     monkeypatch.delenv("WAYLAND_DISPLAY")
     assert manual.qt_display_problem() is None
+
+
+FULL_X, FULL_Y = (-0.5, 999.5), (749.5, -0.5)  # an image's view: y runs top to bottom
+
+
+def test_zoom_keeps_point_under_pointer_fixed():
+    xlim, ylim = zoom_view(FULL_X, FULL_Y, 300, 200, 0.5, FULL_X, FULL_Y)
+    assert xlim == pytest.approx((149.75, 649.75))
+    assert ylim == pytest.approx((474.75, 99.75))  # still inverted
+
+
+def test_zoom_out_stops_at_whole_photo_and_in_at_min_view():
+    xlim, ylim = zoom_view((100, 200), (200, 100), 150, 150, 50, FULL_X, FULL_Y)
+    assert (xlim, ylim) == (FULL_X, FULL_Y)
+    assert zoom_view((100, 125), (125, 100), 110, 110, 0.5, FULL_X, FULL_Y) == (
+        (100, 125),
+        (125, 100),
+    )
+
+
+def test_keep_within_shifts_view_back_inside():
+    assert keep_within((-50.5, 49.5), FULL_X) == (-0.5, 99.5)
+    assert keep_within((780, 680), FULL_Y) == (749.5, 649.5)
+    assert keep_within((10, 20), FULL_X) == (10, 20)
+
+
+def test_window_wheel_zoom_and_drag_pan(tmp_path):
+    m = ImageMeasurement(str(SAMPLE), um_per_px=0.1, calibration="auto")
+    fig, _ = build_window(m, str(tmp_path / "s_manual_measurements.csv"))
+    ax = fig.axes[0]
+    full = ax.get_xlim(), ax.get_ylim()
+    assert "Spore 1" in fig.texts[0].get_text()  # status lines sit above the photo
+    assert fig.texts[0].get_position()[1] > ax.get_position().y1
+
+    px, py = ax.transData.transform((800, 600))
+    for _ in range(3):
+        event = MouseEvent("scroll_event", fig.canvas, px, py, step=1)
+        fig.canvas.callbacks.process("scroll_event", event)
+    xlim = ax.get_xlim()
+    assert xlim[1] - xlim[0] == pytest.approx((full[0][1] - full[0][0]) / ZOOM_STEP**3)
+    # the photo point under the pointer has not moved
+    assert ax.transData.inverted().transform((px, py)) == pytest.approx((800, 600))
+
+    def mouse(name, x, y, button=MouseButton.RIGHT):
+        fig.canvas.callbacks.process(name, MouseEvent(name, fig.canvas, x, y, button=button))
+
+    mouse("button_press_event", px, py)
+    mouse("motion_notify_event", px + 50, py)
+    mouse("button_release_event", px + 50, py)
+    assert ax.get_xlim()[0] < xlim[0]  # dragged right: the view moved left
+    assert m.pending == []  # panning adds no measurement points
+
+    _key(fig, "-")
+    _key(fig, "-")
+    _key(fig, "-")
+    assert (ax.get_xlim(), ax.get_ylim()) == full
+    plt.close("all")

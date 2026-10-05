@@ -92,8 +92,10 @@ mounts), measure spores by hand:
 On Linux with X11, Qt also needs a system library: `sudo apt install
 libxcb-cursor0` (spore-measure tells you if it is missing).
 
-Each photo opens in a window; zoom and pan with the toolbar. For each spore,
-click the two ends of its length (red line), then the two sides of its
+Each photo opens in a window. Zoom in until the spore is large enough to
+click its edges accurately: the mouse wheel (or `+` / `-`) zooms about the
+pointer, dragging with the right or middle button pans, and `h` returns to
+the whole photo. For each spore, click the two ends of its length (red line), then the two sides of its
 width (blue line). The scale bar is calibrated automatically; if that fails
 (or press `c`), click its 0 and 100 ticks (`--ruler-ticks` if you click
 other marks). Keys: `u` / Backspace undo, `c` calibrate by hand, `n` next
