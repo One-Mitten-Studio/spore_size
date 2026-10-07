@@ -369,3 +369,20 @@ def test_run_auto_reports_rejected_photos(tmp_path, capsys):
     result = run_auto([str(SAMPLE), blank], str(tmp_path), 1.0)
     assert list(result) == [str(SAMPLE)]
     assert "blank.jpg: no automatic spores" in capsys.readouterr().out
+
+
+def test_colour_cast_photo_shown_in_grey_with_toggle(tmp_path):
+    img = cv2.imread(str(SAMPLE))
+    assert img is not None
+    cast = img.astype(np.float32) * np.array([0.03, 1.0, 1.6], np.float32)
+    path = str(tmp_path / "cast.jpg")
+    cv2.imwrite(path, np.clip(cast, 0, 255).astype(np.uint8))
+    m = ImageMeasurement(path, um_per_px=0.1, calibration="auto")
+    fig, _ = build_window(m, str(tmp_path / "cast_manual_measurements.csv"))
+    shown = fig.axes[0].images[0]
+    grey = shown.get_array()
+    assert np.array_equal(grey[..., 0], grey[..., 2])  # one channel, shown in grey
+    assert "o grey / original colours" in fig.texts[0].get_text()
+    _key(fig, "o")
+    assert not np.array_equal(shown.get_array()[..., 0], shown.get_array()[..., 2])
+    plt.close("all")

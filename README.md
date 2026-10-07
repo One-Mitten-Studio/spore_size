@@ -188,6 +188,15 @@ shows one per directory in its colour, plus a black one for all spores.
 - Detection is tuned for pigmented (yellow-brown) spores like Cortinarius /
   Thaxterogaster. Hyaline or differently coloured spores need the colour
   settings changed (see Tuning).
+- **Colour cast:** a photo whose background is strongly coloured (camera
+  white balance far off, e.g. deep yellow-orange) is handled separately: the
+  scale bar is read from the clearest colour channel, and the photo is
+  corrected to a neutral background before spores are detected, using the
+  scale bar -- neutral in every photo -- as a grey reference. The focus
+  checks are not relaxed for low contrast in such photos, so fewer spores
+  are found, but pale spores are not measured from part of their outline.
+  `spore-measure` shows them in the clearest channel, in grey (`o` switches
+  to the original colours). Photos without a strong cast are unaffected.
 - Counts are deliberately conservative: typically about half the spores in a
   field are measured. The `*_spore_overlay.png` shows exactly which ones.
 - Check `*_calib_overlay.png` for a couple of photos in a new batch to
@@ -216,6 +225,7 @@ saturation/brightness 0-255):
         segment.py       spore segmentation + ellipse fitting
         measure.py       per-image pipeline: filter, CSV, overlay
         fov.py           microscope field-of-view detection / micrograph check
+        colour.py        photos with a strong colour cast: detection and correction
         errors.py        PhotoRejected (photo skipped, not an error)
         _types.py        shared type aliases for annotations
         plots.py         length vs width plots

@@ -221,6 +221,7 @@ def segment_spores(
     wall_ceiling: float = 0.8,
     include_touching: bool = False,
     fov_margin: float = 0.95,
+    relax_focus: bool = True,
     debug_prefix: str | None = None,
 ) -> list[Spore]:
     """Detect clean spores in a BGR image and fit an ellipse to each.
@@ -236,6 +237,7 @@ def segment_spores(
     75th percentile, wall level at most wall_margin above the photo's median.
     They are never relaxed past sharpness_floor and wall_ceiling (ghost and
     badly blurred spores), and never made stricter than the fixed limits.
+    With relax_focus=False the fixed limits apply as they are.
 
     If debug_prefix is given, also writes <prefix>_spore_mask.png and
     <prefix>_spore_overlay.png.
@@ -302,6 +304,8 @@ def segment_spores(
         typical_wall = np.median([c["wall_level"] for c in candidates])
         sharp_min = max(sharpness_floor, min(min_sharpness, rel_sharpness * typical_sharpness))
         wall_max = min(wall_ceiling, max(max_wall_level, typical_wall + wall_margin))
+        if not relax_focus:
+            sharp_min, wall_max = min_sharpness, max_wall_level
         # soft or faint outline: out of focus, or a ghost/immature spore
         spores = [
             c for c in candidates if c["sharpness"] >= sharp_min and c["wall_level"] <= wall_max

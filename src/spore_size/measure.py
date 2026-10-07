@@ -22,6 +22,7 @@ import numpy as np
 
 from ._types import Calibration, Image, Spore
 from .calibration import calibrate_image
+from .colour import correct_colour_cast, has_colour_cast
 from .errors import PhotoRejected
 from .fov import check_micrograph, find_fov_circle, fov_mask
 from .segment import segment_spores, spore_silhouettes
@@ -222,6 +223,13 @@ def analyze_image(
     size-outlier check is done, so that it can be done over more spores
     (see drop_size_outliers). Only the calibration diagnostics are written.
     Raises PhotoRejected if the photo is not a usable spore micrograph.
+
+    A photo with a strong colour cast is calibrated first, then corrected to
+    a neutral background with the scale bar as reference (see colour.py) and
+    checked and segmented like any other, except that the focus checks are
+    not relaxed for low contrast: the correction can't restore contrast, and
+    in such photos relaxed checks let through spores fitted to only part of
+    their outline.
     """
     img = cv2.imread(path)
     if img is None:
@@ -230,6 +238,11 @@ def analyze_image(
     debug_prefix = os.path.join(out_dir, stem) if save_debug else None
 
     check_micrograph(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+    calib = None
+    cast = has_colour_cast(img)
+    if cast:
+        calib = calibrate_image(img, microns_per_tick=um_per_tick, debug_prefix=debug_prefix)
+        img = correct_colour_cast(img, calib)
     clutter = clutter_fraction(img)
     if clutter > max_clutter:
         raise PhotoRejected(
@@ -237,8 +250,9 @@ def analyze_image(
             f"nor spores; tissue rather than a spore mount?)"
         )
 
-    calib = calibrate_image(img, microns_per_tick=um_per_tick, debug_prefix=debug_prefix)
-    raw_spores = segment_spores(img, include_touching=include_touching)
+    if calib is None:
+        calib = calibrate_image(img, microns_per_tick=um_per_tick, debug_prefix=debug_prefix)
+    raw_spores = segment_spores(img, include_touching=include_touching, relax_focus=not cast)
     raw_spores = [s for s in raw_spores if not near_ruler(s, calib)]
     spores = filter_spores(
         raw_spores,

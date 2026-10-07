@@ -30,6 +30,7 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
 from ._types import Calibration, Image, Point
+from .colour import best_channel_image, has_colour_cast
 from .errors import PhotoRejected
 from .fov import find_fov_circle, fov_mask
 
@@ -227,7 +228,12 @@ def calibrate_image(
     Raises PhotoRejected if no ruler with at least min_regular_ticks
     consecutive evenly spaced ticks is found (e.g. the line locked onto
     tissue texture instead of the scale bar).
+
+    In a photo with a strong colour cast nothing is colourless, so the ruler
+    is looked for in its most informative channel instead (see colour.py).
     """
+    if has_colour_cast(img_bgr):
+        img_bgr = best_channel_image(img_bgr)
     gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
     fov_center, fov_radius = find_fov_circle(gray)
 

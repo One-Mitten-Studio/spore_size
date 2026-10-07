@@ -32,6 +32,7 @@ import numpy as np
 
 from ._types import CvEllipse, Point, Spore
 from .calibration import calibrate_image
+from .colour import best_channel_image, has_colour_cast
 from .errors import PhotoRejected
 from .measure import analyze_image, drop_outliers_by_directory
 from .summary import DEFAULT_SYS_ERROR_UM
@@ -459,20 +460,26 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
     """
     import matplotlib.pyplot as plt
 
-    # free c, backspace and q from matplotlib's default keys for our own use, and
+    # free c, backspace, o and q from matplotlib's default keys for our own use, and
     # turn off keys that would put a log scale or grid on the photo
     plt.rcParams["keymap.back"] = ["left"]
     plt.rcParams["keymap.quit"] = ["ctrl+w", "cmd+w"]
+    plt.rcParams["keymap.zoom"] = []  # the toolbar's zoom button still works
     for keymap in ("keymap.xscale", "keymap.yscale", "keymap.grid", "keymap.grid_minor"):
         plt.rcParams[keymap] = []
 
     bgr = cv2.imread(m.path)
     if bgr is None:
         raise RuntimeError(f"Could not read image: {m.path}")
-    img = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    original = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+    # a photo with a strong colour cast is shown in its clearest channel, in grey;
+    # o switches between that and the original
+    views = [original]
+    if has_colour_cast(bgr):
+        views.insert(0, cv2.cvtColor(best_channel_image(bgr), cv2.COLOR_BGR2RGB))
     fig, ax = plt.subplots(figsize=(12, 9))
     fig.canvas.manager.set_window_title(f"spore-measure: {m.path}")  # type: ignore[union-attr]
-    ax.imshow(img)
+    shown = ax.imshow(views[0])
     ax.set_axis_off()
     # leave a band at the top for the status lines, which tight_layout would not
     fig.subplots_adjust(left=0.005, right=0.995, bottom=0.005, top=0.9)
@@ -481,6 +488,7 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
     artists: list[Any] = []
     state = {"quit": False}
     drag: dict[str, Any] = {}  # pan in progress: start pixel and start view
+    view = {"index": 0}
 
     def redraw() -> None:
         """Redraw all spores and pending points."""
@@ -506,7 +514,10 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
             xs, ys = zip(*m.pending, strict=True)
             colour = "lime" if m.calibrating else ("red" if len(m.pending) <= 2 else "#1f4fff")
             artists.extend(ax.plot(xs, ys, "+", color=colour, ms=12, mew=1.5))
-        status.set_text(instructions(m))
+        text = instructions(m)
+        if len(views) > 1:
+            text += "   o grey / original colours"
+        status.set_text(text)
         status.set_color("red" if m.calibrating else "black")
         status.set_fontweight("bold" if m.calibrating else "normal")
         fig.canvas.draw_idle()
@@ -562,7 +573,10 @@ def build_window(m: ImageMeasurement, csv_path: str) -> tuple[Any, dict[str, boo
                 x, y = sum(ax.get_xlim()) / 2, sum(ax.get_ylim()) / 2
             zoom(x, y, ZOOM_STEP if event.key == "-" else 1 / ZOOM_STEP)
             return
-        if event.key in ("u", "backspace"):
+        if event.key == "o" and len(views) > 1:
+            view["index"] = 1 - view["index"]
+            shown.set_data(views[view["index"]])
+        elif event.key in ("u", "backspace"):
             m.undo()
             m.save_csv(csv_path)
         elif event.key == "d":
