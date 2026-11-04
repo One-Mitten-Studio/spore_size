@@ -17,7 +17,7 @@ PATH" in the installer). Then, in a terminal (Windows: Command Prompt):
 
     python3 -m venv spore-env                 # Windows: py -m venv spore-env
     source spore-env/bin/activate             # Windows: spore-env\Scripts\activate
-    pip install "spore-size[gui] @ https://github.com/douglas-mvca/spore_size/archive/refs/heads/main.zip"
+    pip install "spore-size[gui] @ https://github.com/One-Mitten-Studio/spore_size/archive/refs/heads/main.zip"
 
 Then try it on a few of your photos:
 
