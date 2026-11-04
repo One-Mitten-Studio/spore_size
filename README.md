@@ -3,7 +3,31 @@
 Measures spore length x width (um) from micrographs that have a diagonal
 0-100 ocular-micrometer scale bar overlay, like the sample photo tested here.
 
-## Install
+## Will it work with my photos?
+It is built for photos like `tests/data/sample_spores.jpg`:
+- taken at 1000x (100x oil objective), with
+- an eyepiece micrometer scale (0-100 ticks) visible in the photo, and
+- pigmented, yellow-brown spores (e.g. Cortinarius). Hyaline or differently
+  coloured spores need tuning (see Tuning), but `spore-measure` lets you
+  measure any spores by hand.
+
+## Quick install
+You need Python 3.10 or newer (python.org; on Windows tick "Add Python to
+PATH" in the installer). Then, in a terminal (Windows: Command Prompt):
+
+    python3 -m venv spore-env                 # Windows: py -m venv spore-env
+    source spore-env/bin/activate             # Windows: spore-env\Scripts\activate
+    pip install "spore-size[gui] @ https://github.com/douglas-mvca/spore_size/archive/refs/heads/main.zip"
+
+Then try it on a few of your photos:
+
+    spore-size photo1.jpg photo2.jpg --out-dir results
+    spore-measure photo1.jpg photo2.jpg --out-dir measure_results
+
+In a new terminal, run the `activate` line again first. To update to the
+latest version, rerun the `pip install` line with `--upgrade`.
+
+## Install for development
 Requires Python 3.10+. From a clone of this repo:
 
     python3 -m venv .venv
